@@ -48,7 +48,7 @@ class Config(BaseModel):
     def from_env(env: str, **kwargs) -> "Config":
         """Create config with names derived from --env suffix."""
         cluster_name = f"{BASE_NAME}-{env}" if env else BASE_NAME
-        resource_group = f"osdu-{env}" if env else f"osdu-{BASE_NAME}"
+        resource_group = f"{BASE_NAME}-{env}" if env else BASE_NAME
 
         # Azure naming: alphanumeric only, 3-24 chars for KV, 5-50 for ACR
         safe_env = env.replace("-", "").replace("_", "")
