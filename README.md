@@ -1,5 +1,6 @@
 # OSDU SPI Stack
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 ![Status: Experimental](https://img.shields.io/badge/status-experimental-orange.svg)
 
 ### Azure-Native Software for OSDU
@@ -154,3 +155,7 @@ Commands:
 
 - [Architecture](docs/architecture.md)
 - [ADRs](docs/decisions/)
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

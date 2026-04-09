@@ -1,0 +1,7 @@
+{
+  "files.exclude": {
+    "workspace": true,
+    ".venv": true,
+    "**/__pycache__": true
+  }
+}
