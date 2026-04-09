@@ -154,6 +154,7 @@ Commands:
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [AI Skills](docs/ai-skills.md)
 - [ADRs](docs/decisions/)
 
 ## License
