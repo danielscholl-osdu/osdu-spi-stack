@@ -30,6 +30,25 @@ console = Console(theme=Theme({
     "info": "dim white",
 }))
 
+# Dependency order matching the 7-layer Kustomization stack (ADR-007).
+# Items not in this list sort to the end alphabetically.
+_KUSTOMIZATION_ORDER = [
+    "osdu-spi-stack-system-stack",
+    "spi-namespaces",
+    "spi-cert-manager",
+    "spi-eck-operator",
+    "spi-cnpg-operator",
+    "spi-gateway",
+    "spi-elasticsearch",
+    "spi-redis",
+    "spi-postgresql",
+    "spi-airflow",
+    "spi-osdu-config",
+    "spi-osdu-services",
+    "spi-osdu-reference",
+]
+_KUSTOMIZATION_RANK = {name: i for i, name in enumerate(_KUSTOMIZATION_ORDER)}
+
 
 def _kubectl_json(args: list) -> dict | list | None:
     result = subprocess.run(
@@ -72,7 +91,11 @@ def _render_kustomizations():
         console.print("  [info]No Kustomizations found[/info]")
         return
 
-    for item in data["items"]:
+    items = sorted(
+        data["items"],
+        key=lambda x: _KUSTOMIZATION_RANK.get(x["metadata"]["name"], 999),
+    )
+    for item in items:
         name = item["metadata"]["name"]
         conditions = item.get("status", {}).get("conditions", [])
         ready = "Unknown"

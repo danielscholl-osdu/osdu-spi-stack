@@ -156,10 +156,34 @@ def _is_spi_context(context: str) -> bool:
 
 
 def _has_spi_fingerprint() -> bool:
-    """Check if the cluster has the osdu-spi-stack-system GitRepository."""
+    """Check if the cluster has the osdu-spi-stack-system deployment.
+
+    Checks kubectl first (GitRepository CRD). If Flux CRDs are not yet
+    installed (e.g. right after spi up --no-wait), falls back to checking
+    the AKS Flux configuration via az CLI.
+    """
     result = subprocess.run(
         ["kubectl", "get", "gitrepository", "osdu-spi-stack-system",
          "-n", "flux-system", "--no-headers"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return True
+
+    # Flux CRDs may not exist yet; check AKS extension instead
+    ctx = _get_current_context()
+    cluster_name = ctx if ctx else ""
+    if not cluster_name:
+        return False
+    # Resource group matches cluster name for spi-stack deployments
+    result = subprocess.run(
+        ["az", "k8s-configuration", "flux", "show",
+         "--resource-group", cluster_name,
+         "--cluster-name", cluster_name,
+         "--cluster-type", "managedClusters",
+         "--name", "osdu-spi-stack-system",
+         "--query", "provisioningState",
+         "--output", "tsv"],
         capture_output=True, text=True,
     )
     return result.returncode == 0
@@ -273,9 +297,32 @@ def check_prerequisites(tools: List[str]):
 # Namespace creation
 # ---------------------------------------------------------------------------
 
-def ensure_namespaces(istio_revision: str = "asm-1-24"):
+def _detect_istio_revision() -> str:
+    """Detect the installed Istio ASM revision from the cluster."""
+    result = subprocess.run(
+        ["kubectl", "get", "ns", "aks-istio-system",
+         "-o", "jsonpath={.metadata.labels.istio\\.io/rev}"],
+        capture_output=True, text=True,
+    )
+    rev = result.stdout.strip()
+    if rev:
+        return rev
+    # Fallback: check for istiod pods
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "aks-istio-system",
+         "-o", "jsonpath={.items[0].metadata.labels.istio\\.io/rev}"],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip() or "asm-1-27"
+
+
+def ensure_namespaces(istio_revision: str = ""):
     """Create namespaces with Istio sidecar injection labels."""
     console.print("\n[bold]Ensuring namespaces...[/bold]")
+
+    if not istio_revision:
+        istio_revision = _detect_istio_revision()
+    console.print(f"  [info]Istio revision: {istio_revision}[/info]")
 
     for ns in ["flux-system", "foundation"]:
         subprocess.run(

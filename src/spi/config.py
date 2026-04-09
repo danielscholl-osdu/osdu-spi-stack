@@ -43,6 +43,8 @@ class Config(BaseModel):
     identity_name: str = ""
     keyvault_name: str = ""
     acr_name: str = ""
+    # Output control
+    verbose: bool = False
 
     @staticmethod
     def from_env(env: str, **kwargs) -> "Config":

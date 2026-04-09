@@ -26,10 +26,63 @@ Creates all Azure resources required by the OSDU SPI stack:
 """
 
 import json
-from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional, Tuple
 
 from .config import Config
 from .helpers import console, run_command, display_result
+
+# Max concurrent az CLI processes for sub-resource creation
+_PARALLEL_WORKERS = 4
+
+
+def _run_batch(
+    tasks: List[Tuple[list, str]],
+    label: str,
+    verbose: bool,
+    sequential: bool = False,
+):
+    """Run a batch of (cmd_list, description) pairs.
+
+    In verbose mode, runs sequentially showing each command panel.
+    When sequential=True, runs one at a time with a spinner (for APIs
+    that reject concurrent writes, e.g. federated credentials).
+    Otherwise, fans out with a thread pool and shows a spinner.
+    """
+    total = len(tasks)
+    if verbose:
+        for i, (cmd, desc) in enumerate(tasks, 1):
+            run_command(cmd, description=desc, display=True, check=False)
+    elif sequential:
+        ctx = console.status("")
+        ctx.__enter__()
+        for i, (cmd, desc) in enumerate(tasks, 1):
+            ctx.update(f"  {label}: creating {i}/{total}")
+            run_command(cmd, description=desc, display=False, check=False)
+        ctx.__exit__(None, None, None)
+    else:
+        completed = 0
+        errors = []
+        ctx = console.status("")
+        ctx.__enter__()
+        ctx.update(f"  {label}: creating 0/{total}")
+        with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
+            futures = {}
+            for cmd, desc in tasks:
+                f = pool.submit(run_command, cmd, description=desc, display=False, check=False)
+                futures[f] = desc
+            for f in as_completed(futures):
+                result = f.result()
+                completed += 1
+                if result.returncode != 0:
+                    stderr = (result.stderr or "").strip()
+                    errors.append((futures[f], stderr))
+                ctx.update(f"  {label}: created {completed}/{total}")
+        ctx.__exit__(None, None, None)
+        if errors:
+            for desc, err in errors:
+                console.print(f"  [warning]{desc}: {err}[/warning]")
+    console.print(f"  [info]{label}: {total} items processed[/info]")
 
 
 # ──────────────────────────────────────────────
@@ -163,7 +216,7 @@ def _storage_name(prefix: str, env: str) -> str:
 
 def _sb_name(partition: str, env: str) -> str:
     """Generate a service bus namespace name."""
-    return f"osdu-{env}-{partition}-sb"[:50]
+    return f"osdu-{env}-{partition}-bus"[:50]
 
 
 def _cosmos_sql_name(partition: str, env: str) -> str:
@@ -204,7 +257,7 @@ def _aks_exists(config: Config) -> bool:
 
 
 def create_aks_automatic(config: Config):
-    """Create an AKS Automatic cluster."""
+    """Create an AKS Automatic cluster with managed Istio."""
     if _aks_exists(config):
         console.print(f"\n[warning]AKS cluster '{config.cluster_name}' already exists. Using it.[/warning]")
     else:
@@ -215,11 +268,15 @@ def create_aks_automatic(config: Config):
              "--name", config.cluster_name,
              "--location", config.location,
              "--sku", "automatic",
+             "--enable-azure-service-mesh",
              "--no-ssh-key",
              "--output", "json"],
             description=f"Create AKS Automatic: {config.cluster_name}",
         )
     display_result(f"AKS Automatic cluster {config.cluster_name} ready")
+
+    # Enable Istio mesh and external ingress gateway (idempotent)
+    _ensure_istio_mesh(config)
 
     console.print("\n[bold]Fetching cluster credentials...[/bold]")
     run_command(
@@ -229,6 +286,50 @@ def create_aks_automatic(config: Config):
          "--overwrite-existing"],
         description="Merge kubeconfig",
     )
+
+
+def _ensure_istio_mesh(config: Config):
+    """Ensure Istio service mesh and external ingress gateway are enabled."""
+    # Check current mesh state
+    result = run_command(
+        ["az", "aks", "show",
+         "--resource-group", config.resource_group,
+         "--name", config.cluster_name,
+         "--query", "serviceMeshProfile",
+         "--output", "json"],
+        description="Check Istio mesh status",
+        display=False,
+    )
+    mesh = json.loads(result.stdout or "{}")
+
+    # Enable mesh if not already active
+    if mesh.get("mode") != "Istio":
+        console.print("\n[bold]Enabling Istio service mesh...[/bold]")
+        run_command(
+            ["az", "aks", "mesh", "enable",
+             "--resource-group", config.resource_group,
+             "--name", config.cluster_name],
+            description="Enable Azure Service Mesh",
+        )
+        display_result("Istio service mesh enabled")
+    else:
+        display_result("Istio service mesh already enabled")
+
+    # Enable external ingress gateway if not already present
+    gateways = (mesh.get("istio") or {}).get("components", {}).get("ingressGateways") or []
+    has_external = any(g.get("enabled") and g.get("mode") == "External" for g in gateways)
+    if not has_external:
+        console.print("\n[bold]Enabling Istio external ingress gateway...[/bold]")
+        run_command(
+            ["az", "aks", "mesh", "enable-ingress-gateway",
+             "--resource-group", config.resource_group,
+             "--name", config.cluster_name,
+             "--ingress-gateway-type", "External"],
+            description="Enable external ingress gateway",
+        )
+        display_result("Istio external ingress gateway enabled")
+    else:
+        display_result("Istio external ingress gateway already enabled")
 
 
 def create_managed_identity(config: Config) -> dict:
@@ -258,7 +359,16 @@ def create_key_vault(config: Config) -> dict:
          "--enable-rbac-authorization",
          "--output", "json"],
         description=f"Create Key Vault: {config.keyvault_name}",
+        check=False,
     )
+    if result.returncode != 0:
+        result = run_command(
+            ["az", "keyvault", "show",
+             "--name", config.keyvault_name,
+             "--resource-group", config.resource_group,
+             "--output", "json"],
+            description=f"Get existing Key Vault: {config.keyvault_name}",
+        )
     kv = json.loads(result.stdout)
     display_result(f"Key Vault {config.keyvault_name} ready")
     return kv
@@ -274,7 +384,16 @@ def create_acr(config: Config) -> dict:
          "--sku", "Basic",
          "--output", "json"],
         description=f"Create ACR: {config.acr_name}",
+        check=False,
     )
+    if result.returncode != 0:
+        result = run_command(
+            ["az", "acr", "show",
+             "--name", config.acr_name,
+             "--resource-group", config.resource_group,
+             "--output", "json"],
+            description=f"Get existing ACR: {config.acr_name}",
+        )
     acr = json.loads(result.stdout)
     display_result(f"ACR {config.acr_name} ready")
     return acr
@@ -287,7 +406,7 @@ def create_acr(config: Config) -> dict:
 def create_cosmos_gremlin(config: Config) -> dict:
     """Create CosmosDB Gremlin account for entitlements graph."""
     name = _cosmos_gremlin_name(config.env)
-    console.print(f"\n[bold]Creating CosmosDB Gremlin account: {name}...[/bold]")
+    console.print(f"\n[bold]Creating CosmosDB Gremlin account: {name} (this takes ~5 minutes)...[/bold]")
     result = run_command(
         ["az", "cosmosdb", "create",
          "--name", name,
@@ -300,7 +419,7 @@ def create_cosmos_gremlin(config: Config) -> dict:
     )
     account = json.loads(result.stdout)
 
-    # Create database and graph
+    # Create database and graph (check=False: idempotent on re-run)
     run_command(
         ["az", "cosmosdb", "gremlin", "database", "create",
          "--account-name", name,
@@ -308,6 +427,7 @@ def create_cosmos_gremlin(config: Config) -> dict:
          "--name", "osdu-graph",
          "--output", "json"],
         description="Create Gremlin database: osdu-graph",
+        check=False,
     )
     run_command(
         ["az", "cosmosdb", "gremlin", "graph", "create",
@@ -319,6 +439,7 @@ def create_cosmos_gremlin(config: Config) -> dict:
          "--max-throughput", "4000",
          "--output", "json"],
         description="Create Gremlin graph: Entitlements",
+        check=False,
     )
     display_result(f"CosmosDB Gremlin {name} ready")
     return account
@@ -327,7 +448,7 @@ def create_cosmos_gremlin(config: Config) -> dict:
 def create_cosmos_sql(config: Config, partition: str) -> dict:
     """Create CosmosDB SQL account for a partition."""
     name = _cosmos_sql_name(partition, config.env)
-    console.print(f"\n[bold]Creating CosmosDB SQL account: {name} (partition: {partition})...[/bold]")
+    console.print(f"\n[bold]Creating CosmosDB SQL account: {name} (partition: {partition}, this takes ~10 minutes)...[/bold]")
     result = run_command(
         ["az", "cosmosdb", "create",
          "--name", name,
@@ -339,7 +460,7 @@ def create_cosmos_sql(config: Config, partition: str) -> dict:
     )
     account = json.loads(result.stdout)
 
-    # Create osdu-db database
+    # Create osdu-db database (check=False: idempotent on re-run)
     run_command(
         ["az", "cosmosdb", "sql", "database", "create",
          "--account-name", name,
@@ -348,11 +469,12 @@ def create_cosmos_sql(config: Config, partition: str) -> dict:
          "--max-throughput", "4000",
          "--output", "json"],
         description=f"Create SQL database: osdu-db",
+        check=False,
     )
 
     # Create containers
-    for container, pk in OSDU_DB_CONTAINERS.items():
-        run_command(
+    tasks = [
+        (
             ["az", "cosmosdb", "sql", "container", "create",
              "--account-name", name,
              "--resource-group", config.resource_group,
@@ -360,9 +482,11 @@ def create_cosmos_sql(config: Config, partition: str) -> dict:
              "--name", container,
              "--partition-key-path", pk,
              "--output", "json"],
-            description=f"Create container: {container}",
-            display=False,
+            f"Create container: {container}",
         )
+        for container, pk in OSDU_DB_CONTAINERS.items()
+    ]
+    _run_batch(tasks, "osdu-db", config.verbose)
 
     # Create system database (only for primary partition)
     if partition == config.primary_partition:
@@ -374,9 +498,10 @@ def create_cosmos_sql(config: Config, partition: str) -> dict:
              "--max-throughput", "4000",
              "--output", "json"],
             description="Create SQL database: osdu-system-db",
+            check=False,
         )
-        for container, pk in OSDU_SYSTEM_DB_CONTAINERS.items():
-            run_command(
+        tasks = [
+            (
                 ["az", "cosmosdb", "sql", "container", "create",
                  "--account-name", name,
                  "--resource-group", config.resource_group,
@@ -384,9 +509,11 @@ def create_cosmos_sql(config: Config, partition: str) -> dict:
                  "--name", container,
                  "--partition-key-path", pk,
                  "--output", "json"],
-                description=f"Create system container: {container}",
-                display=False,
+                f"Create system container: {container}",
             )
+            for container, pk in OSDU_SYSTEM_DB_CONTAINERS.items()
+        ]
+        _run_batch(tasks, "osdu-system-db", config.verbose)
 
     display_result(f"CosmosDB SQL {name} ready ({len(OSDU_DB_CONTAINERS)} containers)")
     return account
@@ -407,19 +534,26 @@ def create_service_bus(config: Config, partition: str) -> dict:
     )
     ns = json.loads(result.stdout)
 
-    for topic_name, topic_spec in SERVICEBUS_TOPICS.items():
-        run_command(
+    # Create topics first (subscriptions depend on them)
+    topic_tasks = [
+        (
             ["az", "servicebus", "topic", "create",
              "--namespace-name", name,
              "--resource-group", config.resource_group,
              "--name", topic_name,
              "--max-size", str(topic_spec["max_size"]),
              "--output", "json"],
-            description=f"Create topic: {topic_name}",
-            display=False,
+            f"Create topic: {topic_name}",
         )
+        for topic_name, topic_spec in SERVICEBUS_TOPICS.items()
+    ]
+    _run_batch(topic_tasks, "topics", config.verbose)
+
+    # Then create all subscriptions in parallel
+    sub_tasks = []
+    for topic_name, topic_spec in SERVICEBUS_TOPICS.items():
         for sub_name, sub_spec in topic_spec["subscriptions"].items():
-            run_command(
+            sub_tasks.append((
                 ["az", "servicebus", "topic", "subscription", "create",
                  "--namespace-name", name,
                  "--resource-group", config.resource_group,
@@ -428,9 +562,10 @@ def create_service_bus(config: Config, partition: str) -> dict:
                  "--max-delivery-count", str(sub_spec["max_delivery"]),
                  "--lock-duration", sub_spec["lock_duration"],
                  "--output", "json"],
-                description=f"Create subscription: {sub_name}",
-                display=False,
-            )
+                f"Create subscription: {topic_name}/{sub_name}",
+            ))
+    if sub_tasks:
+        _run_batch(sub_tasks, "subscriptions", config.verbose)
 
     display_result(f"Service Bus {name} ready ({len(SERVICEBUS_TOPICS)} topics)")
     return ns
@@ -468,28 +603,28 @@ def create_storage_accounts(config: Config) -> dict:
     )
     common_key = key_result.stdout.strip()
 
-    # Create common containers
-    for container in COMMON_STORAGE_CONTAINERS:
-        run_command(
+    # Create common containers + partitionInfo table
+    verbose = config.verbose
+    tasks = [
+        (
             ["az", "storage", "container", "create",
              "--name", container,
              "--account-name", common_name,
              "--account-key", common_key,
              "--output", "json"],
-            description=f"Create container: {container}",
-            display=False,
+            f"Create container: {container}",
         )
-
-    # Create partitionInfo table
-    run_command(
+        for container in COMMON_STORAGE_CONTAINERS
+    ]
+    tasks.append((
         ["az", "storage", "table", "create",
          "--name", "partitionInfo",
          "--account-name", common_name,
          "--account-key", common_key,
          "--output", "json"],
-        description="Create table: partitionInfo",
-        display=False,
-    )
+        "Create table: partitionInfo",
+    ))
+    _run_batch(tasks, common_name, verbose)
     display_result(f"Common storage {common_name} ready")
 
     # Partition storage accounts
@@ -520,16 +655,18 @@ def create_storage_accounts(config: Config) -> dict:
         )
         part_key = pk_result.stdout.strip()
 
-        for container in PARTITION_STORAGE_CONTAINERS:
-            run_command(
+        tasks = [
+            (
                 ["az", "storage", "container", "create",
                  "--name", container,
                  "--account-name", part_name,
                  "--account-key", part_key,
                  "--output", "json"],
-                description=f"Create container: {container}",
-                display=False,
+                f"Create container: {container}",
             )
+            for container in PARTITION_STORAGE_CONTAINERS
+        ]
+        _run_batch(tasks, part_name, verbose)
         display_result(f"Partition storage {part_name} ready")
 
     return results
@@ -556,21 +693,21 @@ def get_aks_oidc_issuer(config: Config) -> str:
 def create_federated_credentials(config: Config, identity_name: str, oidc_issuer: str):
     """Create federated identity credentials for each namespace."""
     console.print("\n[bold]Creating federated identity credentials...[/bold]")
-    for ns in FEDERATED_CREDENTIAL_NAMESPACES:
-        cred_name = f"federated-ns-{ns}"
-        subject = f"system:serviceaccount:{ns}:workload-identity-sa"
-        run_command(
+    tasks = [
+        (
             ["az", "identity", "federated-credential", "create",
-             "--name", cred_name,
+             "--name", f"federated-ns-{ns}",
              "--identity-name", identity_name,
              "--resource-group", config.resource_group,
              "--issuer", oidc_issuer,
-             "--subject", subject,
+             "--subject", f"system:serviceaccount:{ns}:workload-identity-sa",
              "--audiences", "api://AzureADTokenExchange",
              "--output", "json"],
-            description=f"Federated credential: {ns}",
-            display=False,
+            f"Federated credential: {ns}",
         )
+        for ns in FEDERATED_CREDENTIAL_NAMESPACES
+    ]
+    _run_batch(tasks, "credentials", config.verbose, sequential=True)
     display_result(f"Federated credentials created ({len(FEDERATED_CREDENTIAL_NAMESPACES)} namespaces)")
 
 
@@ -601,18 +738,19 @@ def assign_roles(config: Config, identity_principal_id: str, resource_ids: dict)
     if "acr" in resource_ids:
         assignments.append(("AcrPull", resource_ids["acr"]))
 
-    for role, scope in assignments:
-        run_command(
+    tasks = [
+        (
             ["az", "role", "assignment", "create",
              "--role", role,
              "--assignee-object-id", identity_principal_id,
              "--assignee-principal-type", "ServicePrincipal",
              "--scope", scope,
              "--output", "json"],
-            description=f"Assign: {role}",
-            display=False,
-            check=False,  # Idempotent; may already exist
+            f"Assign: {role}",
         )
+        for role, scope in assignments
+    ]
+    _run_batch(tasks, "roles", config.verbose)
 
     display_result(f"RBAC roles assigned ({len(assignments)} assignments)")
 
@@ -651,19 +789,21 @@ def populate_keyvault_secrets(config: Config, infra_outputs: dict):
         if f"{partition}_sb_namespace" in infra_outputs:
             secrets[f"{prefix}-sb-namespace"] = infra_outputs[f"{partition}_sb_namespace"]
 
-    for name, value in secrets.items():
-        if value:
-            run_command(
-                ["az", "keyvault", "secret", "set",
-                 "--vault-name", config.keyvault_name,
-                 "--name", name,
-                 "--value", value,
-                 "--output", "json"],
-                description=f"Set secret: {name}",
-                display=False,
-            )
+    active_secrets = {k: v for k, v in secrets.items() if v}
+    tasks = [
+        (
+            ["az", "keyvault", "secret", "set",
+             "--vault-name", config.keyvault_name,
+             "--name", name,
+             "--value", value,
+             "--output", "json"],
+            f"Set secret: {name}",
+        )
+        for name, value in active_secrets.items()
+    ]
+    _run_batch(tasks, "secrets", config.verbose)
 
-    display_result(f"Key Vault secrets populated ({len([v for v in secrets.values() if v])} secrets)")
+    display_result(f"Key Vault secrets populated ({len(active_secrets)} secrets)")
 
 
 # ──────────────────────────────────────────────

@@ -141,6 +141,7 @@ def up(
     location: str = typer.Option("eastus2", "--location", help="Azure region"),
     data_partitions: Optional[List[str]] = typer.Option(
         None, "--partition", help="Data partition names (can specify multiple)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show all sub-resource commands"),
 ):
     """Provision Azure infrastructure and deploy the OSDU SPI stack."""
     if profile is None:
@@ -151,6 +152,7 @@ def up(
         branch=branch, location=location,
         data_partitions=data_partitions,
     )
+    config.verbose = verbose
 
     console.print(Panel(
         "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack\n"
