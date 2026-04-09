@@ -1,0 +1,34 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: eck-operator
+  namespace: flux-system
+spec:
+  targetNamespace: foundation
+  interval: 30m
+  chart:
+    spec:
+      chart: eck-operator
+      version: "2.16.*"
+      sourceRef:
+        kind: HelmRepository
+        name: elastic
+  values:
+    managedNamespaces:
+      - platform
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+    resources:
+      requests:
+        cpu: 100m
+        memory: 150Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

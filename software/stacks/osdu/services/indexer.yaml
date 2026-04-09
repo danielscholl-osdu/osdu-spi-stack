@@ -1,0 +1,65 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: indexer
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  dependsOn:
+    - name: storage
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/indexer-service/indexer-service-azure
+      tag: "4a2bd12e73f914460c93aade608287d16e42e2ce"
+    elasticTls: true
+    redisTls: true
+    istioProxyPin:
+      enabled: true
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: indexer
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/indexer/v2/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: SECURITY_HTTPS_CERTIFICATE_TRUST
+        value: "true"
+      - name: COSMOSDB_DATABASE
+        value: osdu-db
+      - name: SERVICEBUS_TOPIC_NAME
+        value: indexing-progress
+      - name: REINDEX_TOPIC_NAME
+        value: recordstopic
+      - name: REDIS_DATABASE
+        value: "4"
+      - name: REDIS_TTL_SECONDS
+        value: "3600"
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1
+      - name: ENTITLEMENTS_SERVICE_ENDPOINT
+        value: http://entitlements/api/entitlements/v2
+      - name: ENTITLEMENTS_SERVICE_API_KEY
+        value: OBSOLETE
+      - name: SCHEMA_SERVICE_URL
+        value: http://schema/api/schema-service/v1
+      - name: STORAGE_SERVICE_URL
+        value: http://storage/api/storage/v2
+      - name: STORAGE_SCHEMA_HOST
+        value: http://storage/api/storage/v2/schemas
+      - name: STORAGE_QUERY_RECORD_FOR_CONVERSION_HOST
+        value: http://storage/api/storage/v2/query/records:batch
+      - name: STORAGE_QUERY_RECORD_HOST
+        value: http://storage/api/storage/v2/query/records
+      - name: SEARCH_SERVICE_URL
+        value: http://search/api/search/v2

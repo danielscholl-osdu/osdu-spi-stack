@@ -1,0 +1,106 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: airflow
+  namespace: flux-system
+spec:
+  targetNamespace: platform
+  interval: 30m
+  chart:
+    spec:
+      chart: airflow
+      version: "1.16.*"
+      sourceRef:
+        kind: HelmRepository
+        name: apache-airflow
+  values:
+    executor: KubernetesExecutor
+
+    # Use external PostgreSQL (CNPG)
+    postgresql:
+      enabled: false
+    data:
+      metadataSecretName: airflow-metadata-secret
+
+    # Webserver
+    webserver:
+      replicas: 1
+      defaultUser:
+        enabled: true
+        username: admin
+        role: Admin
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # Scheduler
+    scheduler:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # Triggerer
+    triggerer:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # DAGs via git-sync
+    dags:
+      gitSync:
+        enabled: true
+        repo: https://community.opengroup.org/osdu/platform/data-flow/ingestion/osdu-airflow.git
+        branch: master
+        subPath: osdu_airflow/dags
+        wait: 60
+
+    # Config
+    config:
+      webserver:
+        base_url: "http://localhost:8080/airflow"
+      core:
+        dags_folder: "/opt/airflow/dags/repo/osdu_airflow/dags"

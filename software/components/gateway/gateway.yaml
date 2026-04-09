@@ -1,0 +1,18 @@
+# Istio Gateway using Gateway API (managed by AKS Automatic).
+# The external ingress gateway is provisioned by AKS managed Istio.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: spi-gateway
+  namespace: aks-istio-ingress
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

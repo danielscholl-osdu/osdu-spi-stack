@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - partition.yaml
+  - entitlements.yaml
+  - legal.yaml
+  - schema.yaml
+  - storage.yaml
+  - search.yaml
+  - indexer.yaml
+  - indexer-queue.yaml
+  - file.yaml
+  - workflow.yaml

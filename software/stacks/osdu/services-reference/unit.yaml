@@ -1,0 +1,38 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: unit
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/reference/unit-service/unit-service-azure
+      tag: "2fdf7e3c4674f87ad0d556e0f1f6da458dac2b18"
+    probes:
+      liveness:
+        path: /api/unit/actuator/health
+        port: 8080
+        initialDelaySeconds: 250
+      readiness:
+        path: /api/unit/actuator/health
+        port: 8080
+        initialDelaySeconds: 10
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: unit
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/unit/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"

@@ -1,0 +1,94 @@
+# Copyright 2026, Microsoft
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# -- Image configuration
+image:
+  repository: ""
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# -- Container port the service listens on
+containerPort: 8080
+
+# -- Service account (created by CLI bootstrap)
+serviceAccountName: workload-identity-sa
+
+# -- ConfigMap mounted as envFrom (created by CLI bootstrap)
+configMapRef: osdu-config
+
+# -- Kubernetes Service
+service:
+  type: ClusterIP
+  port: 80
+
+# -- Health probes
+probes:
+  liveness:
+    path: /actuator/health
+    port: 8081
+    initialDelaySeconds: 250
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /actuator/health
+    port: 8081
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# -- Resource requests and limits
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# -- Extra environment variables (list of {name, value} objects)
+env: []
+
+# -- Extra init containers (for data download, etc.)
+initContainers: []
+
+# -- Extra volume mounts for the main container
+volumeMounts: []
+
+# -- Extra volumes
+volumes: []
+
+# -- Workload identity pod label
+workloadIdentity: true
+
+# -- Elasticsearch TLS init container (for search/indexer)
+elasticTls: false
+
+# -- Redis TLS -- import self-signed CA into Java truststore
+redisTls: false
+
+# -- Topology spread constraints
+topologySpread: true
+
+# -- Node scheduling (set via values override when nodepool isolation is enabled)
+nodeSelector: {}
+tolerations: []
+
+# -- Pin Istio sidecar proxy image
+istioProxyPin:
+  enabled: false
+  image: mcr.microsoft.com/oss/v2/istio/proxyv2:v1.28.3-2

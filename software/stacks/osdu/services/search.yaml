@@ -1,0 +1,51 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: search
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  dependsOn:
+    - name: storage
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/search-service/search-service-azure
+      tag: "1756362704ad9ee2b63c83562cebcd9abd233e26"
+    elasticTls: true
+    redisTls: true
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: search
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/search/v2/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: COSMOSDB_DATABASE
+        value: osdu-db
+      - name: REDIS_DATABASE
+        value: "5"
+      - name: ENVIRONMENT
+        value: evt
+      - name: ELASTIC_CACHE_EXPIRATION
+        value: "1"
+      - name: MAX_CACHE_VALUE_SIZE
+        value: "60"
+      - name: POLICY_SERVICE_ENABLED
+        value: "false"
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1
+      - name: ENTITLEMENTS_SERVICE_ENDPOINT
+        value: http://entitlements/api/entitlements/v2
+      - name: ENTITLEMENTS_SERVICE_API_KEY
+        value: OBSOLETE

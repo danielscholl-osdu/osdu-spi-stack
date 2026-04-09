@@ -1,0 +1,196 @@
+{{/*
+Copyright 2026, Microsoft
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "osdu-spi-service.name" . }}
+  labels:
+    {{- include "osdu-spi-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "osdu-spi-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-spi-service.selectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+      {{- if .Values.istioProxyPin.enabled }}
+      annotations:
+        sidecar.istio.io/proxyImage: {{ .Values.istioProxyPin.image }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+
+      # -- AKS Automatic / Deployment Safeguards compliance
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      {{- if .Values.topologySpread }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "osdu-spi-service.selectorLabels" . | nindent 14 }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "osdu-spi-service.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- if or .Values.elasticTls .Values.redisTls .Values.initContainers }}
+      initContainers:
+        {{- if or .Values.elasticTls .Values.redisTls }}
+        - name: import-ca-certs
+          image: eclipse-temurin:17-jre-alpine
+          command:
+            - sh
+            - -c
+            - |
+              cp $JAVA_HOME/lib/security/cacerts /truststore/cacerts
+              {{- if .Values.elasticTls }}
+              keytool -importcert -noprompt -keystore /truststore/cacerts \
+                -storepass changeit -alias elastic-ca -file /elastic-ca/ca.crt
+              {{- end }}
+              {{- if .Values.redisTls }}
+              keytool -importcert -noprompt -keystore /truststore/cacerts \
+                -storepass changeit -alias redis-ca -file /redis-ca/ca.crt
+              {{- end }}
+          volumeMounts:
+            {{- if .Values.elasticTls }}
+            - name: elastic-ca
+              mountPath: /elastic-ca
+              readOnly: true
+            {{- end }}
+            {{- if .Values.redisTls }}
+            - name: redis-ca
+              mountPath: /redis-ca
+              readOnly: true
+            {{- end }}
+            - name: truststore
+              mountPath: /truststore
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+        {{- end }}
+        {{- range .Values.initContainers }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
+
+      containers:
+        - name: {{ include "osdu-spi-service.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: {{ .Values.probes.liveness.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: {{ .Values.probes.readiness.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.configMapRef }}
+          {{- if or .Values.env .Values.elasticTls .Values.redisTls }}
+          env:
+            {{- if or .Values.elasticTls .Values.redisTls }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+            {{- end }}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if or .Values.elasticTls .Values.redisTls .Values.volumeMounts }}
+          volumeMounts:
+            {{- if or .Values.elasticTls .Values.redisTls }}
+            - name: truststore
+              mountPath: /truststore
+              readOnly: true
+            {{- end }}
+            {{- range .Values.volumeMounts }}
+            - {{- toYaml . | nindent 14 }}
+            {{- end }}
+          {{- end }}
+
+      {{- if or .Values.elasticTls .Values.redisTls .Values.volumes }}
+      volumes:
+        {{- if .Values.elasticTls }}
+        - name: elastic-ca
+          secret:
+            secretName: elastic-ca-cert
+        {{- end }}
+        {{- if .Values.redisTls }}
+        - name: redis-ca
+          secret:
+            secretName: redis-ca-cert
+        {{- end }}
+        {{- if or .Values.elasticTls .Values.redisTls }}
+        - name: truststore
+          emptyDir: {}
+        {{- end }}
+        {{- range .Values.volumes }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}

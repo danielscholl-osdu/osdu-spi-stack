@@ -1,0 +1,53 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: indexer-queue
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  dependsOn:
+    - name: indexer
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/indexer-queue/indexer-queue-azure
+      tag: "1ad21add706aecd9d1762998113d5976443a4d57"
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: indexer-queue
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: AZURE_SERVICEBUS_TOPIC_NAME
+        value: recordstopic
+      - name: AZURE_REINDEX_TOPIC_NAME
+        value: reindextopic
+      - name: AZURE_SERVICEBUS_TOPIC_SUBSCRIPTION
+        value: recordstopicsubscription
+      - name: AZURE_REINDEX_TOPIC_SUBSCRIPTION
+        value: reindextopicsubscription
+      - name: AZURE_SCHEMACHANGED_TOPIC_NAME
+        value: schemachangedtopic
+      - name: AZURE_SCHEMACHANGED_TOPIC_SUBSCRIPTION
+        value: schemachangedtopiceg
+      - name: MAX_CONCURRENT_CALLS
+        value: "32"
+      - name: MAX_DELIVERY_COUNT
+        value: "5"
+      - name: EXECUTOR_N_THREADS
+        value: "32"
+      - name: MAX_LOCK_RENEW_DURATION_SECONDS
+        value: "600"
+      - name: PARTITION_API
+        value: http://partition/api/partition/v1
+      - name: INDEXER_WORKER_URL
+        value: http://indexer/api/indexer/v2/_dps/task-handlers/index-worker
+      - name: schema_worker_url
+        value: http://indexer/api/indexer/v2/_dps/task-handlers/schema-worker

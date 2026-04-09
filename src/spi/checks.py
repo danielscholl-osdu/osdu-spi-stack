@@ -1,0 +1,154 @@
+# Copyright 2026, Microsoft
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tool registry and prerequisite checking."""
+
+import json
+import platform
+import subprocess
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Tool registry -- single source of truth for CLI prerequisites
+# ---------------------------------------------------------------------------
+
+TOOL_REGISTRY = {
+    "az": {
+        "check_args": ["--version"],
+        "description": "Azure CLI",
+        "install": {
+            "darwin": "brew install azure-cli",
+            "linux": "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash",
+            "windows": "winget install Microsoft.AzureCLI",
+        },
+    },
+    "kubectl": {
+        "check_args": ["version", "--client"],
+        "description": "Kubernetes CLI",
+        "install": {
+            "darwin": "brew install kubectl",
+            "linux": (
+                "curl -LO \"https://dl.k8s.io/release/"
+                "$(curl -sL https://dl.k8s.io/release/stable.txt)"
+                "/bin/linux/amd64/kubectl\" && chmod +x kubectl"
+                " && sudo mv kubectl /usr/local/bin/"
+            ),
+            "windows": "winget install Kubernetes.kubectl",
+        },
+    },
+    "flux": {
+        "check_args": ["--version"],
+        "description": "Flux CD GitOps toolkit",
+        "install": {
+            "darwin": "brew install fluxcd/tap/flux",
+            "linux": "curl -s https://fluxcd.io/install.sh | sudo bash",
+            "windows": "winget install FluxCD.Flux",
+        },
+    },
+    "helm": {
+        "check_args": ["version", "--short"],
+        "description": "Helm package manager",
+        "install": {
+            "darwin": "brew install helm",
+            "linux": "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash",
+            "windows": "winget install Helm.Helm",
+        },
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+
+def detect_platform() -> str:
+    system = platform.system().lower()
+    if system in ("darwin", "linux", "windows"):
+        return system
+    return "unknown"
+
+
+def _is_windows() -> bool:
+    return platform.system().lower() == "windows"
+
+
+# ---------------------------------------------------------------------------
+# Tool checking
+# ---------------------------------------------------------------------------
+
+def check_tool_status(name: str, check_args: Optional[list] = None) -> tuple:
+    """Check if a tool is installed and capture version output."""
+    info = TOOL_REGISTRY.get(name, {})
+    args = check_args or info.get("check_args", ["--version"])
+    try:
+        result = subprocess.run(
+            [name] + args, capture_output=True, text=True, timeout=10,
+            shell=_is_windows(),
+        )
+        if result.returncode == 0:
+            output = result.stdout.strip() or result.stderr.strip()
+            version = output.split("\n")[0][:80] if output else "installed"
+            return True, version
+        return False, ""
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False, ""
+
+
+def get_install_hint(tool_name: str) -> Optional[str]:
+    info = TOOL_REGISTRY.get(tool_name, {})
+    install = info.get("install", {})
+    plat = detect_platform()
+    return install.get(plat) or install.get("*")
+
+
+def get_tools_for_provider() -> list:
+    """Return all required tool names (Azure-only)."""
+    return list(TOOL_REGISTRY.keys())
+
+
+# ---------------------------------------------------------------------------
+# Full check run
+# ---------------------------------------------------------------------------
+
+def run_checks() -> list:
+    results = []
+    for name, info in TOOL_REGISTRY.items():
+        installed, version = check_tool_status(name, info.get("check_args"))
+        entry = {
+            "name": name,
+            "description": info.get("description", ""),
+            "installed": installed,
+            "version": version if installed else None,
+        }
+        if not installed:
+            entry["install"] = info.get("install", {})
+            hint = get_install_hint(name)
+            if hint:
+                entry["install_cmd"] = hint
+        results.append(entry)
+    return results
+
+
+def results_to_json(results: list) -> str:
+    return json.dumps(
+        {
+            "platform": detect_platform(),
+            "total": len(results),
+            "installed": sum(1 for r in results if r["installed"]),
+            "missing": sum(1 for r in results if not r["installed"]),
+            "tools": results,
+        },
+        indent=2,
+    )

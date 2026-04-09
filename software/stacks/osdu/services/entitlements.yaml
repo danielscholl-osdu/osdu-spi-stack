@@ -1,0 +1,44 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: entitlements
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  dependsOn:
+    - name: partition
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/security-and-compliance/entitlements/entitlements-azure
+      tag: "0fb954f01c7ef59a68194c88dec4d8d166d0b48e"
+    redisTls: true
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: entitlements
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/entitlements/v2/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: SPRING_CONFIG_NAME
+        value: common,application
+      - name: SERVICE_DOMAIN_NAME
+        value: dataservices.energy
+      - name: ROOT_DATA_GROUP_QUOTA
+        value: "5000"
+      - name: REDIS_TTL_SECONDS
+        value: "1"
+      - name: REDIS_DATABASE
+        value: "2"
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1

@@ -1,0 +1,75 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: crs-conversion
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-azure
+      tag: "43adf2bef10e3e6d3980b4ff74f78e1aff0c2880"
+    probes:
+      liveness:
+        path: /api/crs/converter/actuator/health
+        port: 8080
+        initialDelaySeconds: 250
+      readiness:
+        path: /api/crs/converter/actuator/health
+        port: 8080
+        initialDelaySeconds: 10
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: crs-conversion
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/crs/converter/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: SIS_DATA
+        value: /app/sis-data
+    # Init container to download SIS reference data
+    initContainers:
+      - name: download-sis-data
+        image: curlimages/curl:latest
+        command:
+          - sh
+          - -c
+          - |
+            curl -sL "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.zip?path=appsettings/SISData" -o /tmp/sis.zip
+            unzip -q /tmp/sis.zip -d /tmp/sis
+            cp -r /tmp/sis/*/appsettings/SISData /data/sis-data
+        volumeMounts:
+          - name: sis-data
+            mountPath: /data
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+    volumeMounts:
+      - name: sis-data
+        mountPath: /app/sis-data
+        subPath: sis-data
+    volumes:
+      - name: sis-data
+        emptyDir: {}

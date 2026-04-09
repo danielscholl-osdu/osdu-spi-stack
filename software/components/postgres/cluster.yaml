@@ -1,0 +1,51 @@
+# CNPG PostgreSQL cluster for Airflow metadata storage only.
+# OSDU data services use Azure CosmosDB (not PostgreSQL).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgresql
+  namespace: platform
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  instances: 3
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+      work_mem: "16MB"
+
+  superuserSecret:
+    name: postgresql-superuser-credentials
+
+  bootstrap:
+    initdb:
+      database: airflow
+      owner: airflow
+      secret:
+        name: postgresql-airflow-credentials
+
+  storage:
+    storageClass: pg-storageclass
+    size: 10Gi
+
+  walStorage:
+    storageClass: pg-storageclass
+    size: 4Gi
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+  # AKS Automatic Safeguards compliance
+  enableSuperuserAccess: true
+
+  affinity:
+    topologyKey: topology.kubernetes.io/zone

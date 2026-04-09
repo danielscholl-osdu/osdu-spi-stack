@@ -1,0 +1,26 @@
+# Self-signed CA and certificate for Redis TLS.
+# Services import this CA into their Java truststore via init container.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: redis-selfsigned-issuer
+  namespace: platform
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: redis-tls-cert
+  namespace: platform
+spec:
+  secretName: redis-tls-secret
+  issuerRef:
+    name: redis-selfsigned-issuer
+    kind: Issuer
+  dnsNames:
+    - redis-master.platform.svc.cluster.local
+    - redis-master.platform.svc
+    - redis-master
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days

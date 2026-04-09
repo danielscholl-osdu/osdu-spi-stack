@@ -1,0 +1,64 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: storage
+  namespace: flux-system
+spec:
+  targetNamespace: osdu
+  dependsOn:
+    - name: legal
+  interval: 30m
+  chart:
+    spec:
+      chart: ./software/charts/osdu-spi-service
+      sourceRef:
+        kind: GitRepository
+        name: osdu-spi-stack-system
+  values:
+    image:
+      repository: community.opengroup.org:5555/osdu/platform/system/storage/storage-azure
+      tag: "13d0a957c558dd109dd1bb4fb705de583cdc295c"
+    redisTls: true
+    istioProxyPin:
+      enabled: true
+    env:
+      - name: SPRING_APPLICATION_NAME
+        value: storage
+      - name: SERVER_SERVLET_CONTEXTPATH
+        value: /api/storage/v2/
+      - name: ACCEPT_HTTP
+        value: "true"
+      - name: AZURE_ISTIOAUTH_ENABLED
+        value: "true"
+      - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
+        value: "true"
+      - name: COSMOSDB_DATABASE
+        value: osdu-db
+      - name: AZURE_SERVICEBUS_ENABLED
+        value: "true"
+      - name: AZURE_EVENTGRID_ENABLED
+        value: "false"
+      - name: SERVICEBUS_TOPIC_NAME
+        value: recordstopic
+      - name: SERVICEBUS_V2_TOPIC_NAME
+        value: recordstopic-v2
+      - name: REDIS_DATABASE
+        value: "4"
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1
+      - name: ENTITLEMENTS_SERVICE_ENDPOINT
+        value: http://entitlements/api/entitlements/v2
+      - name: ENTITLEMENTS_SERVICE_API_KEY
+        value: OBSOLETE
+      - name: LEGAL_SERVICE_ENDPOINT
+        value: http://legal/api/legal/v1
+      - name: LEGAL_SERVICE_REGION
+        value: southcentralus
+      - name: LEGAL_SERVICEBUS_TOPIC_NAME
+        value: legaltagschangedtopiceg
+      - name: CRS_CONVERSION_SERVICE_ENDPOINT
+        value: http://crs-conversion/api/crs/converter/v2
+      - name: POLICY_SERVICE_ENDPOINT
+        value: http://policy/api/policy/v1
+      - name: OPA_ENABLED
+        value: "false"

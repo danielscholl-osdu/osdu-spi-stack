@@ -1,0 +1,22 @@
+# Namespaces are created by the CLI bootstrap (with Istio injection labels).
+# This manifest ensures they exist if Flux runs before the CLI bootstrap.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: foundation
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: osdu
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack

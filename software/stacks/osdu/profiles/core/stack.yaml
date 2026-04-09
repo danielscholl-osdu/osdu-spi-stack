@@ -1,0 +1,238 @@
+# SPI Stack - Core Profile
+# Layered Flux Kustomizations with explicit dependency ordering.
+#
+# Layer 0: Namespaces
+# Layer 1: Operators (ECK, CNPG) + cert-manager + Gateway
+# Layer 2: Middleware (Elasticsearch, Redis, PostgreSQL)
+# Layer 3: Airflow (depends on PostgreSQL)
+# Layer 4: OSDU configuration (ConfigMap created by CLI)
+# Layer 5: Core OSDU services (10 services)
+# Layer 6: Reference services (unit, crs-conversion, crs-catalog)
+
+---
+# Layer 0: Namespaces
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-namespaces
+  namespace: flux-system
+spec:
+  interval: 10m
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/namespaces
+  prune: false
+  wait: true
+  timeout: 5m
+
+---
+# Layer 1a: cert-manager
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-cert-manager
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/cert-manager
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 1b: ECK operator
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-eck-operator
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/operators/eck
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 1c: CNPG operator
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-cnpg-operator
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/operators/cnpg
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 1d: Gateway
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-gateway
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/gateway
+  prune: true
+  wait: true
+  timeout: 5m
+
+---
+# Layer 2a: Elasticsearch
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-elasticsearch
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-eck-operator
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/elasticsearch
+  prune: true
+  wait: true
+  timeout: 15m
+
+---
+# Layer 2b: Redis
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-redis
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-cert-manager
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/redis
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 2c: PostgreSQL (Airflow metadata)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-postgresql
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-cnpg-operator
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/postgres
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 3: Airflow
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-airflow
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-postgresql
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/airflow
+  prune: true
+  wait: true
+  timeout: 15m
+
+---
+# Layer 4: OSDU configuration placeholder
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-config
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/secrets
+  prune: false
+  wait: true
+  timeout: 5m
+
+---
+# Layer 5: Core OSDU services
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-services
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-elasticsearch
+    - name: spi-redis
+    - name: spi-osdu-config
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/services
+  prune: true
+  wait: false
+  timeout: 30m
+
+---
+# Layer 6: Reference services
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-reference
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-osdu-services
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/services-reference
+  prune: true
+  wait: false
+  timeout: 30m
