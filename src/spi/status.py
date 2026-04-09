@@ -81,7 +81,7 @@ def _status_style(status: str, ready_ratio: str = "") -> str:
 
 
 def _render_kustomizations():
-    table = Table(title="Flux Kustomizations", border_style="cyan")
+    table = Table(title="Flux Kustomizations", border_style="cyan", expand=True)
     table.add_column("Name", style="cyan")
     table.add_column("Ready", justify="center")
     table.add_column("Status")
@@ -112,7 +112,7 @@ def _render_kustomizations():
 
 
 def _render_helmreleases():
-    table = Table(title="Helm Releases", border_style="cyan")
+    table = Table(title="Helm Releases", border_style="cyan", expand=True)
     table.add_column("Name", style="cyan")
     table.add_column("Ready", justify="center")
     table.add_column("Revision")
@@ -141,7 +141,7 @@ def _render_helmreleases():
 
 
 def _render_pods(namespace: str, title: str):
-    table = Table(title=f"Pods: {title}", border_style="cyan")
+    table = Table(title=f"Pods: {title}", border_style="cyan", expand=True)
     table.add_column("Name", style="cyan")
     table.add_column("Ready", justify="center")
     table.add_column("Status")

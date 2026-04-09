@@ -324,23 +324,24 @@ def ensure_namespaces(istio_revision: str = ""):
         istio_revision = _detect_istio_revision()
     console.print(f"  [info]Istio revision: {istio_revision}[/info]")
 
-    for ns in ["flux-system", "foundation"]:
+    for ns in ["flux-system", "foundation", "platform"]:
         subprocess.run(
             ["kubectl", "create", "namespace", ns],
             capture_output=True, text=True,
         )
 
-    # Namespaces with Istio injection
-    for ns in ["platform", "osdu"]:
-        yaml_content = f"""\
+    # Only osdu namespace gets Istio injection (platform middleware
+    # does not need the service mesh and istio-init requires NET_ADMIN
+    # which AKS Deployment Safeguards rejects).
+    yaml_content = f"""\
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {ns}
+  name: osdu
   labels:
     istio.io/rev: {istio_revision}
 """
-        kubectl_apply_yaml(yaml_content, f"create namespace {ns}")
+    kubectl_apply_yaml(yaml_content, "create namespace osdu")
 
     display_result("Namespaces ready")
 
