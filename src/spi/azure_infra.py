@@ -359,26 +359,48 @@ def create_managed_identity(config: Config) -> dict:
 
 
 def create_key_vault(config: Config) -> dict:
-    """Create Key Vault with RBAC authorization."""
+    """Create Key Vault with RBAC authorization, recovering soft-deleted vaults."""
     console.print("\n[bold]Creating Key Vault...[/bold]")
-    result = run_command(
-        ["az", "keyvault", "create",
-         "--name", config.keyvault_name,
-         "--resource-group", config.resource_group,
-         "--location", config.location,
-         "--enable-rbac-authorization",
+
+    # Check for a soft-deleted vault and recover it if found
+    deleted_check = run_command(
+        ["az", "keyvault", "list-deleted",
+         "--query", f"[?name=='{config.keyvault_name}']",
          "--output", "json"],
-        description=f"Create Key Vault: {config.keyvault_name}",
+        description=f"Check for soft-deleted vault: {config.keyvault_name}",
         check=False,
+        display=False,
     )
-    if result.returncode != 0:
+    deleted_vaults = json.loads(deleted_check.stdout or "[]")
+    if deleted_vaults:
+        console.print(f"[warning]Recovering soft-deleted Key Vault '{config.keyvault_name}'...[/warning]")
         result = run_command(
-            ["az", "keyvault", "show",
+            ["az", "keyvault", "recover",
              "--name", config.keyvault_name,
              "--resource-group", config.resource_group,
              "--output", "json"],
-            description=f"Get existing Key Vault: {config.keyvault_name}",
+            description=f"Recover Key Vault: {config.keyvault_name}",
         )
+    else:
+        result = run_command(
+            ["az", "keyvault", "create",
+             "--name", config.keyvault_name,
+             "--resource-group", config.resource_group,
+             "--location", config.location,
+             "--enable-rbac-authorization",
+             "--output", "json"],
+            description=f"Create Key Vault: {config.keyvault_name}",
+            check=False,
+        )
+        if result.returncode != 0:
+            result = run_command(
+                ["az", "keyvault", "show",
+                 "--name", config.keyvault_name,
+                 "--resource-group", config.resource_group,
+                 "--output", "json"],
+                description=f"Get existing Key Vault: {config.keyvault_name}",
+            )
+
     kv = json.loads(result.stdout)
     display_result(f"Key Vault {config.keyvault_name} ready")
     return kv
