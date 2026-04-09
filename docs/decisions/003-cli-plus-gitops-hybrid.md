@@ -4,7 +4,7 @@
 
 ## Context
 
-The CIMPL stack uses a pure CLI + GitOps model: the CLI creates a Kubernetes cluster and installs Flux, then Flux manages everything inside the cluster. This works because CIMPL has no external infrastructure dependencies.
+A pure CLI + GitOps model creates a Kubernetes cluster and installs Flux, then Flux manages everything inside the cluster. This works when there are no external infrastructure dependencies.
 
 SPI Stack requires Azure PaaS resources (CosmosDB, Service Bus, Storage, Key Vault) that must exist before OSDU services can start. These resources cannot be managed by Flux because they live outside the cluster.
 
@@ -27,6 +27,6 @@ Use a hybrid model:
 
 - No Terraform state to manage; idempotent `az` commands can be re-run safely.
 - Full command transparency; every `az` command is displayed before execution.
-- Longer initial deployment (~15 min for Azure resources vs ~5 min for CIMPL).
+- Longer initial deployment (~15 min for Azure resource provisioning).
 - Azure resource cleanup is a single `az group delete` (resource group scoping).
 - The CLI is the single entry point; no separate infrastructure repository needed.

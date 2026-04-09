@@ -4,7 +4,7 @@
 
 ## Context
 
-OSDU services require persistent storage, messaging, and secret management. The CIMPL stack runs all middleware in-cluster (PostgreSQL, RabbitMQ, MinIO, Keycloak) for cloud-agnostic portability. The SPI stack targets Azure exclusively and can leverage managed services.
+OSDU services require persistent storage, messaging, and secret management. A cloud-agnostic approach runs all middleware in-cluster (PostgreSQL, RabbitMQ, MinIO, Keycloak) for portability. The SPI Stack targets Azure exclusively and can leverage managed services.
 
 Running stateful middleware in-cluster requires significant operational overhead: backup strategies, upgrade paths, monitoring, and capacity planning. Azure PaaS services handle these concerns with SLAs.
 
@@ -12,7 +12,7 @@ Running stateful middleware in-cluster requires significant operational overhead
 
 Use Azure PaaS for all data services that have managed equivalents:
 
-| Data Need | In-Cluster (CIMPL) | Azure PaaS (SPI) |
+| Data Need | In-Cluster | Azure PaaS (SPI) |
 |-----------|-------------------|-------------------|
 | Document store | PostgreSQL | CosmosDB SQL |
 | Graph store | PostgreSQL | CosmosDB Gremlin |

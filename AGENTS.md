@@ -75,6 +75,53 @@ uv run spi reconcile --resume                # Unfreeze GitOps
 - 7-layer Kustomization ordering with explicit dependsOn (ADR-007)
 - In-cluster only for ES, Redis, PG (Airflow); everything else is Azure PaaS (ADR-008)
 
+## OSDU Service Provider Context
+
+SPI Stack deploys the **Azure** provider of OSDU services. When exploring
+cloned OSDU service repositories (e.g., `workspace/partition`, `workspace/indexer-service`),
+each service contains multiple provider implementations under `provider/`:
+
+```
+provider/
+  partition-aws/        # AWS-specific -- IGNORE
+  partition-azure/      # Azure-specific -- THIS IS THE ONE SPI USES
+  partition-gc/         # Google-specific -- IGNORE
+  partition-ibm/        # IBM-specific -- IGNORE
+```
+
+**Only `*-azure/` provider code is relevant to this project.** Other providers
+(`*-aws/`, `*-gc/`, `*-ibm/`, `*-core-plus/`) use different cloud services or
+in-cluster middleware that is not part of the SPI Stack deployment model.
+
+When investigating service behavior, configuration, or bugs:
+1. Start with `*-azure/` provider directories
+2. Fall back to `*-core/` (shared base logic) if the azure provider extends it
+3. **Skip** `*-aws/`, `*-gc/`, `*-ibm/`, `*-core-plus/` directories entirely
+4. The `<service>-core/` module contains shared interfaces and utilities
+   that all providers use -- this is relevant when tracing shared behavior
+
+This avoids wasting tokens reading non-Azure implementations that will never run
+in an SPI Stack deployment.
+
+## Agent Skills
+
+This repo includes portable [Agent Skills](https://agentskills.io) in `.agents/skills/`.
+They are auto-discovered by compatible tools (Claude Code, GitHub Copilot, Cursor, Gemini CLI,
+pi, OpenCode, Goose, Junie, and 20+ others).
+
+Skills are symlinked into `.claude/skills/` for Claude Code discovery. If the symlink is missing:
+```bash
+ln -sf ../.agents/skills .claude/skills
+```
+
+| Skill | Purpose |
+|-------|---------|
+| `prime` | Lightweight codebase overview -- structure, tech stack, and available commands |
+| `setup` | Check prerequisites and install CLI tool dependencies (az, kubectl, flux, helm, uv) |
+| `clone` | Clone OSDU GitLab repositories with optional worktree layout |
+
+For prerequisite diagnostics, tool installation, and authentication setup, use the `setup` skill.
+
 ## OSDU Service Images
 
 Services use Azure SPI images from the OSDU community registry:

@@ -4,7 +4,7 @@
 
 ## Context
 
-Workloads need isolation boundaries for security, resource management, and Istio sidecar injection configuration. The CIMPL stack uses four namespaces (foundation, istio-system, platform, osdu). With AKS Automatic managing Istio, the istio-system namespace is handled by Azure.
+Workloads need isolation boundaries for security, resource management, and Istio sidecar injection configuration. A four-namespace model (foundation, istio-system, platform, osdu) is common, but with AKS Automatic managing Istio, the istio-system namespace is handled by Azure.
 
 ## Decision
 

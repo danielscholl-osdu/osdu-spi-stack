@@ -1,12 +1,108 @@
 # OSDU SPI Stack
 
-Azure-native OSDU deployment using AKS Automatic + Azure PaaS services + Flux CD GitOps.
+![Status: Experimental](https://img.shields.io/badge/status-experimental-orange.svg)
 
-## Architecture
+### Azure-Native Software for OSDU
 
-**Hybrid approach**: Python CLI provisions Azure infrastructure via `az` commands, then Flux CD manages Kubernetes workloads via GitOps.
+SPI Stack deploys the OSDU platform onto Azure using AKS Automatic and Azure PaaS services with a bootstrap + [Flux CD](https://fluxcd.io/) GitOps model. Infrastructure is provisioned via `az` CLI commands, then Flux continuously reconciles Kubernetes workloads from this Git repository.
 
-### Azure PaaS Resources (provisioned by CLI)
+This project is currently optimized for Azure dev/test environments and is still evolving.
+
+**Who this is for:**
+
+- Developers who want a reproducible Azure-based OSDU environment
+- Platform engineers evaluating OSDU with Azure PaaS services
+
+
+## Why SPI Stack
+
+- **Azure-native**: leverages CosmosDB, Service Bus, Storage, Key Vault, and Entra ID
+- **AKS Automatic**: managed Istio, Karpenter, and Deployment Safeguards out of the box
+- **GitOps-driven**: Flux continuously reconciles desired state after bootstrap
+- **Transparent**: every `az` and `kubectl` command is shown before execution
+- **Workload Identity**: no stored credentials; all Azure access via federated identity
+
+
+## Quick Start
+
+The only tool you need to get started is [`uv`](https://docs.astral.sh/uv/).
+
+```bash
+git clone https://github.com/danielscholl-osdu/osdu-spi-stack.git
+cd osdu-spi-stack
+
+# Check prerequisites
+uv run spi check
+
+# Deploy (provisions Azure resources + activates GitOps)
+uv run spi up --env dev1
+```
+
+### After Deploy
+
+```bash
+uv run spi status              # Deployment health dashboard
+uv run spi status --watch      # Continuous refresh
+uv run spi info                # Endpoints and credentials
+
+uv run spi reconcile --suspend # Freeze: stop Flux auto-reconciliation
+uv run spi reconcile --resume  # Unfreeze: resume Flux auto-reconciliation
+
+uv run spi down --env dev1     # Tear down when done
+```
+
+
+## Operating Model
+
+SPI Stack is **GitOps + bootstrap**, not "pure GitOps from an empty cluster."
+
+The CLI performs a bootstrap phase:
+
+- Provision Azure PaaS resources (CosmosDB, Service Bus, Storage, Key Vault)
+- Create an AKS Automatic cluster with Managed Identity
+- Configure Workload Identity and RBAC role assignments
+- Bootstrap the cluster with namespaces, secrets, ConfigMap, and ServiceAccount
+- Activate the AKS native Flux extension pointing to this repo
+
+After that handoff, **Flux owns steady-state reconciliation** and continuously converges the cluster to the desired state.
+
+<details>
+<summary>Deployment phases</summary>
+
+1. **Core Infra**: Resource Group, AKS Automatic, Managed Identity, Key Vault, ACR
+2. **Data Infra**: CosmosDB (Gremlin + SQL), Service Bus, Storage Accounts
+3. **IAM**: Federated credentials, RBAC role assignments, Key Vault secrets
+4. **K8s Bootstrap**: Namespaces, StorageClasses, secrets, ConfigMap, ServiceAccount
+5. **GitOps**: AKS native Flux extension pointing to this repo
+
+A full `spi up` typically takes ~15 minutes, primarily for Azure resource provisioning.
+
+</details>
+
+<details>
+<summary>Environment isolation</summary>
+
+Use `--env` to run multiple isolated deployments. Each environment gets its own resource group and cluster (e.g., `spi-stack-dev1`, `spi-stack-team`).
+
+```bash
+uv run spi up --env dev1
+uv run spi up --env staging
+```
+
+</details>
+
+
+## What It Deploys
+
+Three namespaces, deployed in dependency order via a 7-layer Kustomization stack:
+
+| Namespace | Layer | Deploys |
+|-----------|-------|---------|
+| **foundation** | Operators | ECK (Elasticsearch), CNPG (PostgreSQL), cert-manager |
+| **platform** | Middleware | Elasticsearch, Redis (TLS), PostgreSQL (Airflow), Airflow, Istio Gateway |
+| **osdu** | Services | partition, entitlements, legal, schema, storage, search, indexer, file, workflow + 3 reference services |
+
+### Azure PaaS Resources
 
 | Resource | Purpose |
 |----------|---------|
@@ -18,101 +114,43 @@ Azure-native OSDU deployment using AKS Automatic + Azure PaaS services + Flux CD
 | Key Vault | Centralized secret management |
 | Managed Identity | Workload Identity for all OSDU services |
 
-### In-Cluster Middleware (managed by Flux GitOps)
 
-| Component | Purpose |
-|-----------|---------|
-| Elasticsearch (ECK) | Full-text search and indexing |
-| Redis (Bitnami) | Caching with TLS |
-| PostgreSQL (CNPG) | Airflow metadata only |
-| Apache Airflow | Workflow orchestration |
-| cert-manager | Internal TLS certificates |
+## Prerequisites
 
-### OSDU Services (managed by Flux GitOps)
-
-10 core services + 3 reference services deployed via a local Helm chart (`osdu-spi-service`) with AKS Automatic Deployment Safeguards compliance baked in.
-
-## Quick Start
+Everything is discovered by the CLI:
 
 ```bash
-# 1. Check prerequisites
 uv run spi check
-
-# 2. Deploy (creates all Azure resources + deploys via GitOps)
-uv run spi up --env dev1
-
-# 3. Monitor deployment
-uv run spi status --watch
-
-# 4. View endpoints
-uv run spi info
-
-# 5. Cleanup
-uv run spi down --env dev1
 ```
 
-## CLI Commands
+**Required tools**: az, kubectl, flux, helm
 
-| Command | Description |
-|---------|-------------|
-| `spi check` | Validate required CLI tools (az, kubectl, flux, helm) |
-| `spi up --env NAME` | Provision Azure infra + deploy OSDU stack |
-| `spi down --env NAME` | Delete all Azure resources |
-| `spi status [-w]` | Show deployment health dashboard |
-| `spi info [--show-secrets]` | Show endpoints and credentials |
-| `spi reconcile` | Force Flux to reconcile |
+**System requirements**: Azure subscription with permissions to create resource groups and AKS clusters.
 
-## Project Structure
+<details>
+<summary>AI-assisted setup</summary>
+
+If you use an AI coding assistant (Claude Code, GitHub Copilot, Cursor), this project includes an [AGENTS.md](AGENTS.md) file to help it interpret `spi check` output and guide prerequisite installation. `spi check` remains the source of truth.
+
+</details>
+
+
+## CLI Reference
 
 ```
-osdu-spi-stack/
-├── src/spi/                      # Python CLI
-│   ├── cli.py                    # Main commands (check, up, down, status, info, reconcile)
-│   ├── config.py                 # Configuration model
-│   ├── azure_infra.py            # Azure PaaS provisioning (az CLI commands)
-│   ├── secrets.py                # In-cluster secret generation (ES, Redis, PG)
-│   ├── templates.py              # Kubernetes YAML templates
-│   ├── status.py                 # Deployment dashboard
-│   ├── info.py                   # Endpoint display
-│   └── providers/azure.py        # Orchestrates infra + bootstrap + GitOps
-│
-├── software/
-│   ├── charts/osdu-spi-service/  # Local Helm chart (Safeguards-compliant)
-│   ├── components/               # In-cluster middleware (Flux manifests)
-│   │   ├── cert-manager/
-│   │   ├── operators/eck/
-│   │   ├── operators/cnpg/
-│   │   ├── elasticsearch/
-│   │   ├── redis/
-│   │   ├── postgres/
-│   │   ├── airflow/
-│   │   └── gateway/
-│   └── stacks/osdu/
-│       ├── profiles/core/        # Layered Kustomization stack (7 layers)
-│       ├── services/             # 10 core OSDU service HelmReleases
-│       └── services-reference/   # 3 reference service HelmReleases
-│
-└── pyproject.toml
+uv run spi <command> [OPTIONS]
+
+Commands:
+  check      Validate required tools are installed       
+  up         Provision Azure infra and deploy the stack   --env NAME [--profile] [--partition]
+  status     Deployment health dashboard                  [--watch]
+  down       Delete all Azure resources                   --env NAME
+  info       Show endpoints and optional credentials      [--show-secrets]
+  reconcile  Force Flux to re-sync from Git               [--suspend] [--resume]
 ```
 
-## Deployment Phases
 
-1. **Core Infra**: Resource Group, AKS Automatic, Managed Identity, Key Vault, ACR
-2. **Data Infra**: CosmosDB (Gremlin + SQL), Service Bus, Storage Accounts
-3. **IAM**: Federated credentials, RBAC role assignments, Key Vault secrets
-4. **K8s Bootstrap**: Namespaces, StorageClasses, secrets, ConfigMap, ServiceAccount
-5. **GitOps**: AKS native Flux extension pointing to this repo
+## Documentation
 
-## Key Differences from CIMPL Stack
-
-| Aspect | CIMPL Stack | SPI Stack |
-|--------|------------|-----------|
-| Provider | Multi-cloud (KinD, Azure, AWS, GCP) | Azure-only |
-| AKS | Standard AKS | AKS Automatic |
-| Database | In-cluster PostgreSQL (CNPG) | Azure CosmosDB |
-| Messaging | In-cluster RabbitMQ | Azure Service Bus |
-| Object Storage | In-cluster MinIO | Azure Storage |
-| Secrets | In-cluster (K8s secrets) | Azure Key Vault |
-| Auth | In-cluster Keycloak | Azure Entra ID |
-| Identity | Static credentials | Workload Identity |
-| Service Mesh | Self-managed Istio | AKS Managed Istio |
+- [Architecture](docs/architecture.md)
+- [ADRs](docs/decisions/)

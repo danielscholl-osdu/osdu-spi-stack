@@ -14,7 +14,6 @@
 
 """Secret management for SPI Stack.
 
-Unlike cimpl-stack (which generates 11 passwords for all in-cluster middleware),
 SPI Stack only needs passwords for the three in-cluster components:
   - Elasticsearch (elastic user)
   - Redis (default user)

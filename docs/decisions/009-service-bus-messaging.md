@@ -4,7 +4,7 @@
 
 ## Context
 
-OSDU services use asynchronous messaging for event-driven workflows: record change notifications, legal tag changes, schema changes, indexing progress, and workflow events. CIMPL stack uses in-cluster RabbitMQ with 40+ exchanges, queues, and bindings.
+OSDU services use asynchronous messaging for event-driven workflows: record change notifications, legal tag changes, schema changes, indexing progress, and workflow events. A cloud-agnostic approach uses in-cluster RabbitMQ with 40+ exchanges, queues, and bindings.
 
 The Azure SPI services are built against the Service Bus SDK. They expect Service Bus topic/subscription semantics, not AMQP exchange/queue bindings.
 
