@@ -14,9 +14,11 @@ spec:
       count: 3
       config:
         node.roles: ["master", "data", "ingest"]
+        node.store.allow_mmap: false
       podTemplate:
         spec:
           securityContext:
+            fsGroup: 1000
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault

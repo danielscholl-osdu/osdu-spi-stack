@@ -57,6 +57,13 @@ spec:
         limits:
           cpu: "1"
           memory: 1Gi
+      logGroomerSidecar:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -78,6 +85,32 @@ spec:
         limits:
           cpu: 500m
           memory: 512Mi
+      logGroomerSidecar:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # StatsD sidecar (AKS Deployment Safeguards compliance)
+    statsd:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -97,6 +130,12 @@ spec:
         branch: master
         subPath: osdu_airflow/dags
         wait: 60
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
 
     # Config
     config:
