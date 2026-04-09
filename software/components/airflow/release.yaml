@@ -22,6 +22,26 @@ spec:
     data:
       metadataSecretName: airflow-metadata-secret
 
+    # Database migration job (must run before webserver starts)
+    migrateDatabaseJob:
+      enabled: true
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
     # Webserver
     webserver:
       replicas: 1
