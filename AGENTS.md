@@ -119,6 +119,12 @@ ln -sf ../.agents/skills .claude/skills
 | `prime` | Lightweight codebase overview -- structure, tech stack, and available commands |
 | `setup` | Check prerequisites and install CLI tool dependencies (az, kubectl, flux, helm, uv) |
 | `clone` | Clone OSDU GitLab repositories with optional worktree layout |
+| `osdu-api` | OSDU platform API access via Istio gateway and Azure Entra ID |
+| `osdu-gitlab` | GitLab operations -- glab guardrails, MR/pipeline monitoring, contributor analysis |
+| `osdu-mr` | MR lifecycle -- code review with pipeline diagnostics, trusted branch sync |
+| `osdu-test` | Run Java integration tests against a live SPI Stack environment |
+| `deps` | Dependency analysis, vulnerability scanning, and risk-prioritized remediation |
+| `ship` | Ship code changes to GitLab -- commit, push, and create merge requests |
 
 For prerequisite diagnostics, tool installation, and authentication setup, use the `setup` skill.
 
