@@ -51,6 +51,19 @@ spec:
         capabilities:
           drop:
             - ALL
+      tolerations:
+        - effect: NoSchedule
+          key: workload
+          value: "platform"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: agentpool
+                    operator: In
+                    values:
+                      - platform
     replica:
       replicaCount: 2
       containerPorts:
@@ -77,3 +90,16 @@ spec:
         capabilities:
           drop:
             - ALL
+      tolerations:
+        - effect: NoSchedule
+          key: workload
+          value: "platform"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: agentpool
+                    operator: In
+                    values:
+                      - platform

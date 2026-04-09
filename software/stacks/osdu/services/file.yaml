@@ -19,6 +19,13 @@ spec:
       repository: community.opengroup.org:5555/osdu/platform/system/file/file-azure
       tag: "2b149c5ec48451034fbc2562c7cbe622f41843d1"
     redisTls: true
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     istioProxyPin:
       enabled: true
     env:

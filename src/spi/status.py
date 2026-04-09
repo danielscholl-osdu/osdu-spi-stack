@@ -35,6 +35,7 @@ console = Console(theme=Theme({
 _KUSTOMIZATION_ORDER = [
     "osdu-spi-stack-system-stack",
     "spi-namespaces",
+    "spi-nodepools",
     "spi-cert-manager",
     "spi-eck-operator",
     "spi-cnpg-operator",

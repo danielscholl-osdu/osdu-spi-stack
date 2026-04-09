@@ -19,6 +19,13 @@ spec:
       repository: community.opengroup.org:5555/osdu/platform/security-and-compliance/legal/legal-azure
       tag: "2e82d5975a49564b64574190e492af403164637d"
     redisTls: true
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     env:
       - name: SPRING_APPLICATION_NAME
         value: legal

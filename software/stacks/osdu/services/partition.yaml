@@ -17,6 +17,13 @@ spec:
       repository: community.opengroup.org:5555/osdu/platform/system/partition/partition-azure
       tag: "119bf4d9e25879e5f47206dcf24b4998ee4eb355"
     redisTls: true
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     env:
       - name: SPRING_APPLICATION_NAME
         value: partition

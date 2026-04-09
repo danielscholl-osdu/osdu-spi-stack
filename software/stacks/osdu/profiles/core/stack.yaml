@@ -1,16 +1,17 @@
 # SPI Stack - Core Profile
 # Layered Flux Kustomizations with explicit dependency ordering.
 #
-# Layer 0: Namespaces
+# Layer 0a: Namespaces
+# Layer 0b: Karpenter NodePools (platform + osdu)
 # Layer 1: Operators (ECK, CNPG) + cert-manager + Gateway
-# Layer 2: Middleware (Elasticsearch, Redis, PostgreSQL)
-# Layer 3: Airflow (depends on PostgreSQL)
+# Layer 2: Middleware (Elasticsearch, Redis, PostgreSQL) -- on platform nodes
+# Layer 3: Airflow (depends on PostgreSQL) -- on platform nodes
 # Layer 4: OSDU configuration (ConfigMap created by CLI)
-# Layer 5: Core OSDU services (10 services)
-# Layer 6: Reference services (unit, crs-conversion, crs-catalog)
+# Layer 5: Core OSDU services (10 services) -- on osdu nodes
+# Layer 6: Reference services (unit, crs-conversion, crs-catalog) -- on osdu nodes
 
 ---
-# Layer 0: Namespaces
+# Layer 0a: Namespaces
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -23,6 +24,25 @@ spec:
     name: osdu-spi-stack-system
   path: ./software/components/namespaces
   prune: false
+  wait: true
+  timeout: 5m
+
+---
+# Layer 0b: Karpenter NodePools
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-nodepools
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-namespaces
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/nodepools
+  prune: true
   wait: true
   timeout: 5m
 
@@ -113,6 +133,7 @@ spec:
   interval: 10m
   dependsOn:
     - name: spi-eck-operator
+    - name: spi-nodepools
   sourceRef:
     kind: GitRepository
     name: osdu-spi-stack-system
@@ -132,6 +153,7 @@ spec:
   interval: 10m
   dependsOn:
     - name: spi-cert-manager
+    - name: spi-nodepools
   sourceRef:
     kind: GitRepository
     name: osdu-spi-stack-system
@@ -151,6 +173,7 @@ spec:
   interval: 10m
   dependsOn:
     - name: spi-cnpg-operator
+    - name: spi-nodepools
   sourceRef:
     kind: GitRepository
     name: osdu-spi-stack-system
@@ -209,6 +232,7 @@ spec:
   dependsOn:
     - name: spi-elasticsearch
     - name: spi-redis
+    - name: spi-nodepools
     - name: spi-osdu-config
   sourceRef:
     kind: GitRepository

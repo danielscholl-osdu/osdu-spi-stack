@@ -19,6 +19,13 @@ spec:
       repository: community.opengroup.org:5555/osdu/platform/system/storage/storage-azure
       tag: "13d0a957c558dd109dd1bb4fb705de583cdc295c"
     redisTls: true
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     istioProxyPin:
       enabled: true
     env:

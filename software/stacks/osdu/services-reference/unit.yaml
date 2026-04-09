@@ -16,6 +16,13 @@ spec:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/reference/unit-service/unit-service-azure
       tag: "2fdf7e3c4674f87ad0d556e0f1f6da458dac2b18"
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     probes:
       liveness:
         path: /api/unit/actuator/health

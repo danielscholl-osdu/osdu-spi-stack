@@ -49,3 +49,15 @@ spec:
 
   affinity:
     topologyKey: topology.kubernetes.io/zone
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: agentpool
+                operator: In
+                values:
+                  - platform
+    tolerations:
+      - effect: NoSchedule
+        key: workload
+        value: "platform"

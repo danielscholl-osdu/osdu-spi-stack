@@ -17,6 +17,19 @@ spec:
         node.store.allow_mmap: false
       podTemplate:
         spec:
+          tolerations:
+            - effect: NoSchedule
+              key: workload
+              value: "platform"
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: agentpool
+                        operator: In
+                        values:
+                          - platform
           securityContext:
             fsGroup: 1000
             runAsNonRoot: true

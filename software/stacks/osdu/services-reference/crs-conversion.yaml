@@ -16,6 +16,13 @@ spec:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-azure
       tag: "43adf2bef10e3e6d3980b4ff74f78e1aff0c2880"
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     probes:
       liveness:
         path: /api/crs/converter/actuator/health

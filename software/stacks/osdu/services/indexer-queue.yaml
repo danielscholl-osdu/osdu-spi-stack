@@ -18,6 +18,13 @@ spec:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/indexer-queue/indexer-queue-azure
       tag: "1ad21add706aecd9d1762998113d5976443a4d57"
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     env:
       - name: SPRING_APPLICATION_NAME
         value: indexer-queue

@@ -1,0 +1,110 @@
+# Karpenter NodePools for workload isolation.
+# Platform pool: stateful middleware (ES, Redis, PG, Airflow)
+# OSDU pool: stateless OSDU microservices
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: platform
+spec:
+  template:
+    metadata:
+      labels:
+        agentpool: platform
+    spec:
+      taints:
+        - key: workload
+          value: "platform"
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.azure.com/sku-family
+          operator: In
+          values: ["D"]
+        - key: karpenter.azure.com/sku-cpu
+          operator: In
+          values: ["4", "8"]
+        - key: karpenter.azure.com/sku-storage-premium-capable
+          operator: In
+          values: ["true"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      nodeClassRef:
+        group: karpenter.azure.com
+        kind: AKSNodeClass
+        name: platform
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+  limits:
+    cpu: "64"
+    memory: 256Gi
+---
+apiVersion: karpenter.azure.com/v1beta1
+kind: AKSNodeClass
+metadata:
+  name: platform
+spec:
+  imageFamily: AzureLinux
+  osDiskSizeGB: 128
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: osdu
+spec:
+  template:
+    metadata:
+      labels:
+        agentpool: osdu
+    spec:
+      taints:
+        - key: workload
+          value: "osdu"
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.azure.com/sku-family
+          operator: In
+          values: ["D"]
+        - key: karpenter.azure.com/sku-cpu
+          operator: In
+          values: ["4", "8"]
+        - key: karpenter.azure.com/sku-memory
+          operator: Gt
+          values: ["15"]
+        - key: karpenter.azure.com/sku-storage-premium-capable
+          operator: In
+          values: ["true"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      nodeClassRef:
+        group: karpenter.azure.com
+        kind: AKSNodeClass
+        name: osdu
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+  limits:
+    cpu: "32"
+    memory: 256Gi
+---
+apiVersion: karpenter.azure.com/v1beta1
+kind: AKSNodeClass
+metadata:
+  name: osdu
+spec:
+  imageFamily: AzureLinux
+  osDiskSizeGB: 128

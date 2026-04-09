@@ -31,6 +31,33 @@ spec:
           memory: 256Mi
         limits:
           memory: 512Mi
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
+      securityContexts:
+        pod:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        container:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+
+    # Create default admin user job
+    createUserJob:
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -56,6 +83,13 @@ spec:
         limits:
           cpu: "1"
           memory: 1Gi
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -84,6 +118,13 @@ spec:
             memory: 64Mi
           limits:
             memory: 128Mi
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -112,6 +153,13 @@ spec:
             memory: 64Mi
           limits:
             memory: 128Mi
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
       securityContexts:
         pod:
           runAsNonRoot: true
@@ -131,6 +179,13 @@ spec:
           memory: 64Mi
         limits:
           memory: 128Mi
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "platform"
+          effect: NoSchedule
+      nodeSelector:
+        agentpool: platform
       securityContexts:
         pod:
           runAsNonRoot: true

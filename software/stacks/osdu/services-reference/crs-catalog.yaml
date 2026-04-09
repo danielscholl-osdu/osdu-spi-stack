@@ -16,6 +16,13 @@ spec:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-catalog-service/crs-catalog-service-azure
       tag: "49761e5b20118a9998b4a2a88d6e57eddd4d745e"
+    nodeSelector:
+      agentpool: osdu
+    tolerations:
+      - key: workload
+        operator: Equal
+        value: "osdu"
+        effect: NoSchedule
     probes:
       liveness:
         path: /api/crs/catalog/actuator/health
