@@ -315,6 +315,16 @@ def _ensure_istio_mesh(config: Config):
     else:
         display_result("Istio service mesh already enabled")
 
+    # Wait for any in-progress cluster operation to complete before modifying
+    run_command(
+        ["az", "aks", "wait",
+         "--resource-group", config.resource_group,
+         "--name", config.cluster_name,
+         "--updated", "--interval", "30"],
+        description="Wait for cluster to be ready",
+        display=False,
+    )
+
     # Enable external ingress gateway if not already present
     gateways = (mesh.get("istio") or {}).get("components", {}).get("ingressGateways") or []
     has_external = any(g.get("enabled") and g.get("mode") == "External" for g in gateways)
