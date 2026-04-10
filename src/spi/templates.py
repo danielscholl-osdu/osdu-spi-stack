@@ -99,7 +99,7 @@ data:
   STORAGE_ACCOUNT_NAME: "{storage_account_name}"
   SERVICEBUS_NAMESPACE: "{servicebus_namespace}"
   REDIS_HOSTNAME: "platform-redis-master.platform.svc.cluster.local"
-  REDIS_PORT: "6380"
+  REDIS_PORT: "6379"
   SERVER_PORT: "8080"
   APPINSIGHTS_KEY: "{appinsights_key}"
   ELASTICSEARCH_HOST: "elasticsearch-es-http.platform.svc.cluster.local"
