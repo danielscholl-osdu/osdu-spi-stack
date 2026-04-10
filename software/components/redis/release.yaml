@@ -26,6 +26,10 @@ spec:
       existingSecretPasswordKey: password
     tls:
       enabled: true
+      # Clients speak TLS but do not present a client certificate. Without
+      # this flag the Bitnami chart defaults to tls-auth-clients yes which
+      # enforces mutual TLS and rejects Lettuce with "certificate_required".
+      authClients: false
       existingSecret: redis-tls-secret
       certFilename: tls.crt
       certKeyFilename: tls.key
