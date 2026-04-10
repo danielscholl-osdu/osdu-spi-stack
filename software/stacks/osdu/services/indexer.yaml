@@ -16,8 +16,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/indexer-service/indexer-service-azure
-      tag: "4a2bd12e73f914460c93aade608287d16e42e2ce"
+      repository: community.opengroup.org:5555/osdu/platform/system/indexer-service/indexer-service-master
+      tag: "160ef832e5a686e4ed1ef594c105865f907ea1b4"
     elasticTls: true
     redisTls: true
     nodeSelector:

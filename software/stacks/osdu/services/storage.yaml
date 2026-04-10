@@ -16,8 +16,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/storage/storage-azure
-      tag: "13d0a957c558dd109dd1bb4fb705de583cdc295c"
+      repository: community.opengroup.org:5555/osdu/platform/system/storage/storage-master
+      tag: "72792d99dbcd2eb60d32693987d0b66b2f4b7926"
     redisTls: true
     nodeSelector:
       agentpool: osdu

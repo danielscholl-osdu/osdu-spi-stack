@@ -16,7 +16,7 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/schema-service/schema-service-azure
+      repository: community.opengroup.org:5555/osdu/platform/system/schema-service/schema-service-master
       tag: "868023373a2f7550d9f3e850d06434838eeeb2b4"
     redisTls: true
     nodeSelector:

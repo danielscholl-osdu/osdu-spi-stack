@@ -14,8 +14,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-catalog-service/crs-catalog-service-azure
-      tag: "49761e5b20118a9998b4a2a88d6e57eddd4d745e"
+      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-catalog-service/crs-catalog-service-master
+      tag: "1ddd1e4107fcf61e67d36dfc62b9308f099caf5e"
     nodeSelector:
       agentpool: osdu
     tolerations:

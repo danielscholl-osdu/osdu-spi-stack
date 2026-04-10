@@ -16,7 +16,7 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/search-service/search-service-azure
+      repository: community.opengroup.org:5555/osdu/platform/system/search-service/search-service-master
       tag: "1756362704ad9ee2b63c83562cebcd9abd233e26"
     elasticTls: true
     redisTls: true

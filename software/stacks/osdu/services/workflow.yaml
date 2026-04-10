@@ -16,7 +16,7 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/data-flow/ingestion/ingestion-workflow/ingestion-workflow-azure
+      repository: community.opengroup.org:5555/osdu/platform/data-flow/ingestion/ingestion-workflow/ingestion-workflow-master
       tag: "13fbcfce32601edbfc1c10a1994f8af5a388436f"
     redisTls: true
     nodeSelector:

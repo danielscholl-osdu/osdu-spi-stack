@@ -14,8 +14,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/reference/unit-service/unit-service-azure
-      tag: "2fdf7e3c4674f87ad0d556e0f1f6da458dac2b18"
+      repository: community.opengroup.org:5555/osdu/platform/system/reference/unit-service/unit-service-master
+      tag: "0f1cff6478c4968cc4cd0d7ffc4ea2dcda104fd7"
     nodeSelector:
       agentpool: osdu
     tolerations:

@@ -16,7 +16,7 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/indexer-queue/indexer-queue-azure
+      repository: community.opengroup.org:5555/osdu/platform/system/indexer-queue/indexer-queue-master
       tag: "1ad21add706aecd9d1762998113d5976443a4d57"
     nodeSelector:
       agentpool: osdu

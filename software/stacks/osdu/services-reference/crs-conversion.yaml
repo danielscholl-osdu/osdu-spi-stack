@@ -14,8 +14,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-azure
-      tag: "43adf2bef10e3e6d3980b4ff74f78e1aff0c2880"
+      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-master
+      tag: "08c9c5cd8b9e80e9cce05666d3fd425dbdf2d18b"
     nodeSelector:
       agentpool: osdu
     tolerations:
