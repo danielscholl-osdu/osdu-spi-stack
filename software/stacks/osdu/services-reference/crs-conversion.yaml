@@ -48,7 +48,7 @@ spec:
     # Init container to download SIS reference data
     initContainers:
       - name: download-sis-data
-        image: curlimages/curl:latest
+        image: curlimages/curl:8.9.1
         command:
           - sh
           - -c
