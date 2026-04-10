@@ -163,7 +163,7 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: osdu-spi-stack
 spec:
-  host: redis-master.platform.svc.cluster.local
+  host: platform-redis-master.platform.svc.cluster.local
   trafficPolicy:
     tls:
       mode: DISABLE
@@ -189,7 +189,7 @@ def write_keyvault_bootstrap_secrets(
     partition = config.primary_partition
     tbl_endpoint = f"https://{storage_account_name}.table.core.windows.net/"
     elastic_endpoint = "https://elasticsearch-es-http.platform.svc.cluster.local:9200"
-    redis_hostname = "redis-master.platform.svc.cluster.local"
+    redis_hostname = "platform-redis-master.platform.svc.cluster.local"
 
     secrets_to_write = [
         ("tbl-storage-endpoint", tbl_endpoint),

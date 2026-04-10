@@ -98,7 +98,7 @@ data:
   COSMOSDB_DATABASE: "osdu-db"
   STORAGE_ACCOUNT_NAME: "{storage_account_name}"
   SERVICEBUS_NAMESPACE: "{servicebus_namespace}"
-  REDIS_HOSTNAME: "redis-master.platform.svc.cluster.local"
+  REDIS_HOSTNAME: "platform-redis-master.platform.svc.cluster.local"
   REDIS_PORT: "6380"
   SERVER_PORT: "8080"
   APPINSIGHTS_KEY: "{appinsights_key}"
