@@ -14,6 +14,11 @@ metadata:
   name: redis-tls-cert
   namespace: platform
 spec:
+  # commonName + isCA required for the cert to be importable into a Java
+  # keystore. Without a non-empty Subject DN, keytool rejects the cert as
+  # "Input not an X.509 certificate" even though openssl parses it fine.
+  commonName: redis
+  isCA: true
   secretName: redis-tls-secret
   issuerRef:
     name: redis-selfsigned-issuer
