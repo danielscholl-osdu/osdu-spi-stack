@@ -128,7 +128,7 @@ spec:
             drop:
               - ALL
 
-    # Scheduler (log-groomer sidecar shares scheduler memory; no separate limit)
+    # Scheduler
     scheduler:
       replicas: 1
       resources:
@@ -138,6 +138,8 @@ spec:
         limits:
           cpu: "1"
           memory: 1Gi
+      logGroomerSidecar:
+        enabled: false
       tolerations:
         - key: workload
           operator: Equal
@@ -156,7 +158,7 @@ spec:
             drop:
               - ALL
 
-    # Triggerer (log-groomer sidecar shares triggerer memory; no separate limit)
+    # Triggerer
     triggerer:
       persistence:
         enabled: false
@@ -168,6 +170,8 @@ spec:
         limits:
           cpu: 500m
           memory: 512Mi
+      logGroomerSidecar:
+        enabled: false
       tolerations:
         - key: workload
           operator: Equal
