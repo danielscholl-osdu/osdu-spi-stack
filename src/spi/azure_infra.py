@@ -270,6 +270,10 @@ def create_aks_automatic(config: Config):
              "--sku", "automatic",
              "--enable-azure-service-mesh",
              "--no-ssh-key",
+             # AKS Automatic requires the DisableSSH feature on the initial
+             # system nodepool. Without --ssh-access disabled, az aks create
+             # returns BadRequest on the "Automatic" SKU.
+             "--ssh-access", "disabled",
              "--output", "json"],
             description=f"Create AKS Automatic: {config.cluster_name}",
         )
