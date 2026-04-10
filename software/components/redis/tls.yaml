@@ -24,6 +24,15 @@ spec:
     name: redis-selfsigned-issuer
     kind: Issuer
   dnsNames:
+    # Flux's default releaseName is {namespace}-{name} so the Bitnami chart
+    # creates services as platform-redis-master / platform-redis-replicas.
+    - platform-redis-master.platform.svc.cluster.local
+    - platform-redis-master.platform.svc
+    - platform-redis-master
+    - platform-redis-replicas.platform.svc.cluster.local
+    - platform-redis-replicas.platform.svc
+    - platform-redis-replicas
+    # Keep the short-name aliases for scripts that may target them.
     - redis-master.platform.svc.cluster.local
     - redis-master.platform.svc
     - redis-master
