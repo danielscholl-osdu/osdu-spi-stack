@@ -8,6 +8,14 @@ spec:
   dependsOn:
     - name: storage
   interval: 30m
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    remediation:
+      retries: 3
   chart:
     spec:
       chart: ./software/charts/osdu-spi-service
