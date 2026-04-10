@@ -9,11 +9,16 @@ spec:
   chart:
     spec:
       chart: redis
-      version: "25.*"
+      version: "24.1.3"
       sourceRef:
         kind: HelmRepository
         name: bitnami
   values:
+    # Pin image to bitnamilegacy repo (Bitnami removes old tags from main repo)
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/redis
+      tag: 8.2.1-debian-12-r0
     architecture: replication
     auth:
       enabled: true

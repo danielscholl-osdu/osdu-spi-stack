@@ -226,24 +226,12 @@ spec:
             drop:
               - ALL
 
-    # DAGs via git-sync
+    # DAGs via git-sync (disabled; OSDU GitLab requires authentication)
     dags:
       gitSync:
-        enabled: true
-        repo: https://community.opengroup.org/osdu/platform/data-flow/ingestion/osdu-airflow.git
-        branch: master
-        subPath: osdu_airflow/dags
-        wait: 60
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
-          limits:
-            memory: 128Mi
+        enabled: false
 
     # Config
     config:
       webserver:
         base_url: "http://localhost:8080/airflow"
-      core:
-        dags_folder: "/opt/airflow/dags/repo/osdu_airflow/dags"
