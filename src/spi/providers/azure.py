@@ -24,8 +24,14 @@ from ..helpers import (
     create_storage_classes, ensure_namespaces,
     install_gateway_api_crds, kubectl_apply_yaml, display_yaml,
 )
-from ..secrets import ensure_secrets
+from ..secrets import ensure_secrets, get_or_create_seed
 from ..azure_infra import provision_azure_infra
+from ..runtime_bootstrap import (
+    apply_redis_destination_rule,
+    copy_elastic_ca_to_osdu,
+    copy_redis_ca_to_osdu,
+    write_keyvault_bootstrap_secrets,
+)
 from ..templates import osdu_config_configmap, workload_identity_sa
 
 
@@ -109,6 +115,35 @@ def deploy_azure(config: Config):
         "timeout=30m",
     ]
     run_command(cmd, description=f"Configure GitOps: profile {config.profile.value}")
+
+    # Phase 6: Runtime bootstrap -- bridge middleware to OSDU services.
+    # These steps can only run after Flux has reconciled Redis and ES,
+    # so they poll for the resulting secrets with a timeout. The Istio
+    # DestinationRule and Key Vault secrets can be applied immediately
+    # without waiting.
+    _runtime_bootstrap(config, infra_outputs)
+
+
+def _runtime_bootstrap(config: Config, infra_outputs: dict):
+    """Post-handoff bootstrap: Istio DR, KV secrets, cert copies."""
+    console.print("\n[bold]Running post-handoff bootstrap...[/bold]")
+
+    # Non-blocking: apply Istio DestinationRule for Redis
+    apply_redis_destination_rule()
+
+    # Non-blocking: write the small set of KV secrets OSDU services read at startup
+    seed = get_or_create_seed()
+    write_keyvault_bootstrap_secrets(
+        config=config,
+        keyvault_name=config.keyvault_name,
+        storage_account_name=infra_outputs.get("common_storage_name", ""),
+        elastic_password=seed["elastic_password"],
+        redis_password=seed["redis_password"],
+    )
+
+    # Blocking with timeout: wait for Flux-managed middleware secrets
+    copy_redis_ca_to_osdu()
+    copy_elastic_ca_to_osdu()
 
 
 def cleanup_azure(config: Config):

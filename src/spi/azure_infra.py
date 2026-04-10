@@ -275,6 +275,14 @@ def create_aks_automatic(config: Config):
         )
     display_result(f"AKS Automatic cluster {config.cluster_name} ready")
 
+    # Relax Deployment Safeguards for the three namespaces we manage.
+    # The uniqueServiceSelectors constraint blocks ECK from creating its
+    # http + transport services (both select the same pods), and container
+    # probe/resource constraints collide with a few upstream charts. We
+    # drop enforcement to Warning and exclude platform/osdu/foundation so
+    # workloads can start while other namespaces keep full enforcement.
+    _configure_safeguards(config)
+
     # Enable Istio mesh and external ingress gateway (idempotent)
     _ensure_istio_mesh(config)
 
@@ -286,6 +294,23 @@ def create_aks_automatic(config: Config):
          "--overwrite-existing"],
         description="Merge kubeconfig",
     )
+
+
+def _configure_safeguards(config: Config):
+    """Set AKS Deployment Safeguards to Warning and exclude managed namespaces."""
+    console.print("\n[bold]Configuring Deployment Safeguards...[/bold]")
+    run_command(
+        [
+            "az", "aks", "update",
+            "--resource-group", config.resource_group,
+            "--name", config.cluster_name,
+            "--safeguards-level", "Warning",
+            "--safeguards-excluded-ns", "platform,osdu,foundation",
+            "--output", "none",
+        ],
+        description="Safeguards: Warning + exclude platform,osdu,foundation",
+    )
+    display_result("Deployment Safeguards relaxed for managed namespaces")
 
 
 def _ensure_istio_mesh(config: Config):
