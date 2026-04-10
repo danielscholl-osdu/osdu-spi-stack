@@ -278,6 +278,18 @@ def create_aks_automatic(config: Config):
         )
     display_result(f"AKS Automatic cluster {config.cluster_name} ready")
 
+    # --enable-azure-service-mesh on create leaves a background update
+    # in flight after az aks create returns. Wait for it to settle before
+    # the next cluster update, otherwise we hit OperationNotAllowed.
+    run_command(
+        ["az", "aks", "wait",
+         "--resource-group", config.resource_group,
+         "--name", config.cluster_name,
+         "--updated", "--interval", "30"],
+        description="Wait for cluster to be ready",
+        display=False,
+    )
+
     # Relax Deployment Safeguards for the three namespaces we manage.
     # The uniqueServiceSelectors constraint blocks ECK from creating its
     # http + transport services (both select the same pods), and container
