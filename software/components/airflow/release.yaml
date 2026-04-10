@@ -6,6 +6,13 @@ metadata:
 spec:
   targetNamespace: platform
   interval: 30m
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
   chart:
     spec:
       chart: airflow
@@ -16,15 +23,28 @@ spec:
   values:
     executor: KubernetesExecutor
 
+    # Disable Helm hooks for Flux CD compatibility -- Flux manages ordering
+    # via Kustomization dependsOn; hooks cause install timeouts
+    useHelmHooks: false
+
     # Use external PostgreSQL (CNPG)
     postgresql:
       enabled: false
     data:
       metadataSecretName: airflow-metadata-secret
 
-    # Database migration job (must run before webserver starts)
+    # Disable PVC persistence -- use emptyDir to avoid storage bloat
+    workers:
+      persistence:
+        enabled: false
+    logs:
+      persistence:
+        enabled: false
+
+    # Database migration job
     migrateDatabaseJob:
       enabled: true
+      useHelmHooks: false
       resources:
         requests:
           cpu: 250m
@@ -51,6 +71,13 @@ spec:
 
     # Create default admin user job
     createUserJob:
+      useHelmHooks: false
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
       tolerations:
         - key: workload
           operator: Equal
@@ -138,6 +165,8 @@ spec:
 
     # Triggerer
     triggerer:
+      persistence:
+        enabled: false
       replicas: 1
       resources:
         requests:
