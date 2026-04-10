@@ -325,6 +325,33 @@ def _ensure_istio_mesh(config: Config):
         display=False,
     )
 
+    # Enable CNI chaining to avoid NET_ADMIN capability requirement
+    # (AKS Deployment Safeguards block istio-init with NET_ADMIN)
+    cni_mode = (
+        (mesh.get("istio") or {})
+        .get("components", {})
+        .get("proxyRedirectionMechanism", "")
+    )
+    if cni_mode != "CNIChaining":
+        console.print("\n[bold]Enabling Istio CNI chaining...[/bold]")
+        run_command(
+            ["az", "aks", "mesh", "enable-istio-cni",
+             "--resource-group", config.resource_group,
+             "--name", config.cluster_name],
+            description="Enable Istio CNI chaining",
+        )
+        run_command(
+            ["az", "aks", "wait",
+             "--resource-group", config.resource_group,
+             "--name", config.cluster_name,
+             "--updated", "--interval", "30"],
+            description="Wait for cluster to be ready",
+            display=False,
+        )
+        display_result("Istio CNI chaining enabled")
+    else:
+        display_result("Istio CNI chaining already enabled")
+
     # Enable external ingress gateway if not already present
     gateways = (mesh.get("istio") or {}).get("components", {}).get("ingressGateways") or []
     has_external = any(g.get("enabled") and g.get("mode") == "External" for g in gateways)
