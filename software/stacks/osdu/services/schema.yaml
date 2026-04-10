@@ -47,6 +47,8 @@ spec:
         value: schemachangedtopic
       - name: EVENT_GRID_ENABLED
         value: "false"
+      - name: EVENT_GRID_TOPIC
+        value: schemachangedtopic
       - name: SERVICE_BUS_ENABLED
         value: "true"
       - name: PARTITION_SERVICE_ENDPOINT

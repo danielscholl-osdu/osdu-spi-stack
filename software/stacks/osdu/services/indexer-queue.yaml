@@ -58,3 +58,5 @@ spec:
         value: http://indexer/api/indexer/v2/_dps/task-handlers/index-worker
       - name: schema_worker_url
         value: http://indexer/api/indexer/v2/_dps/task-handlers/schema-worker
+      - name: AZURE_APP_RESOURCE_ID
+        value: $(AAD_CLIENT_ID)

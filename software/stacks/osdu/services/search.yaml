@@ -56,3 +56,5 @@ spec:
         value: http://entitlements/api/entitlements/v2
       - name: ENTITLEMENTS_SERVICE_API_KEY
         value: OBSOLETE
+      - name: POLICY_SERVICE_ENDPOINT
+        value: http://policy/api/policy/v1
