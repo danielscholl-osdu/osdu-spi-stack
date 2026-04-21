@@ -16,6 +16,8 @@ Last updated: 2026-04-21
 | Phase 2 Stage C — other modules to AVM | 🚫 Dropped | See Stage A findings below |
 | FIC concurrency (unplanned, surfaced by live deploy) | ✅ Shipped + live-validated | `@batchSize(1)` on identity.bicep FIC loop |
 | AKS Azure-RBAC grant (unplanned, surfaced by live deploy) | ✅ Shipped + live-validated | `_grant_deployer_cluster_admin` + propagation wait in azure_infra.py |
+| CSI disk drivers declarative enable (unplanned, post-B1 blocker) | ✅ Shipped + live-validated | PR #2 (`infra/aks.bicep`, `src/spi/helpers.py`, `src/spi/templates.py`) |
+| ECK service selector Safeguards compliance (unmasked by CSI fix) | ✅ Shipped + live-validated | PR #2 (`software/components/elasticsearch/cluster.yaml`) |
 
 ## What's in each branch
 
@@ -122,11 +124,40 @@ AKS Automatic enforces Azure RBAC for Kubernetes and disables local accounts. Be
 
 Fix: new `_grant_deployer_cluster_admin` and `_wait_for_cluster_rbac` in `src/spi/azure_infra.py`. After `az aks get-credentials`, assign the signed-in principal `Azure Kubernetes Service RBAC Cluster Admin` on the cluster resource, then poll `kubectl auth can-i create namespace` until propagation lands (typically 2-3 minutes; capped at 5).
 
-## Known issue (not introduced by this migration)
+## Resolved post-B3 blockers (PR #2)
 
-On `spi-stack-ci1`, Flux's platform layer stalled in reconciliation because Redis and PostgreSQL PVCs sat in `ExternalProvisioning` indefinitely, waiting for `disk.csi.azure.com` to provision disks. Pods stayed Pending. The cluster's CSI Azure Disk driver is installed but not creating volumes.
+### CSI disk provisioning (previously "Known issue")
 
-This is orthogonal to the Bicep migration -- the CSI driver, storage classes, and Flux workloads are all untouched by this work. Worth a separate investigation (likely storage-class / CSI workload-identity RBAC).
+**Symptom (pre-fix):** on `spi-stack-ci1`, Flux's platform layer stalled because Redis and PostgreSQL PVCs sat in `ExternalProvisioning` indefinitely. `disk.csi.azure.com` was the declared provisioner but no disks were being created. Pods stayed Pending.
+
+**Root cause:** AVM `container-service/managed-cluster:0.13.0` exposes the CSI drivers as four scalar boolean flags (`enableStorageProfileDiskCSIDriver`, `enableStorageProfileFileCSIDriver`, `enableStorageProfileBlobCSIDriver`, `enableStorageProfileSnapshotController`) rather than a nested `storageProfile` block. We were not setting them, so the AVM module passed through `null` for the storage profile. Even though AKS Automatic installs the drivers by default, the live cluster's `storageProfile` reflected "not declaratively enabled" and provisioning did not progress past the ExternalProvisioning phase for our storage classes.
+
+**Fix:** declare the four flags explicitly in `infra/aks.bicep`. Also align StorageClass parameters with the sister Terraform repo: add `kind: Managed`, `cachingMode: ReadOnly`, `allowVolumeExpansion: true` (reclaimPolicy stays `Delete` for dev/test posture).
+
+**Live validation (spi-stack-ci1):**
+- `az aks show ... --query storageProfile` → all four drivers `enabled: true`
+- PVC event sequence: `ExternalProvisioning → ProvisioningSucceeded` in ~2 seconds (was previously indefinite)
+- PostgreSQL 3 replicas Running, Redis 1 master + 2 replicas Running, Elasticsearch 3 nodes Green with 3× 128Gi PVCs Bound
+- Airflow scheduler/webserver/triggerer/statsd Running
+
+### ECK Safeguards conflict (unmasked by the CSI fix)
+
+**Symptom:** once CSI unblocked Redis and PostgreSQL, Flux progressed to Elasticsearch — which then stuck in `ApplyingChanges` with 0 pods. The ECK operator was attempting to create `elasticsearch-es-http` after `elasticsearch-es-transport` already existed, and the Azure Policy-backed Gatekeeper constraint `K8sAzureV1UniqueServiceSelector` (policy definition `uniqueServiceSelectors`, assignment `aks-deployment-safeguards-policy-assignment`) denied the second Service because ECK's default pattern gives both services identical selectors.
+
+**Why this was latent:** pre-CSI-fix, reconciliation never progressed past the platform layer's PVC binding, so ECK never got to the second Service. The CSI fix exposed a blocker that was always there.
+
+**Why this is not an ADR-012 B3 contradiction:** B3 asserts "Automatic safeguards cannot be relaxed." That is accurate for the non-bypassable ValidatingAdmissionPolicies (pod-level security). It does **not** apply to Azure Policy-backed Gatekeeper constraints like `uniqueServiceSelectors` — those *do* expose configurable parameters (`excludedNamespaces`, `effect`) on the policy assignment. We chose not to change the policy, though; we chose workload compliance instead (see below).
+
+**Fix (mirrors sister Terraform repo `../osdu-spi-infra/main/software/spi-stack/modules/elastic/main.tf:26-41`):** override the ES CR's `spec.http.service.spec.selector` and `spec.transport.service.spec.selector` with a distinct discriminator label per service (`elasticsearch.service/http: "true"` vs `elasticsearch.service/transport: "true"`), and stamp both labels on `podTemplate.metadata.labels` so both services still match the same pods. The resulting services have unique selector label sets — policy satisfied — while functional routing is unchanged.
+
+This approach keeps ADR-004's philosophy intact: compliance is baked into the workload, not obtained via policy exemption.
+
+**Live validation (spi-stack-ci1):** four ES services created without admission errors (`elasticsearch-es-http`, `elasticsearch-es-internal-http`, `elasticsearch-es-transport`, `elasticsearch-es-default`); 3 ES pods Running; cluster health `green`; 3× 128Gi PVCs bound; HTTP CA secret `elasticsearch-es-http-certs-public` created.
+
+### Out-of-scope issues observed on the validation cluster
+
+- OSDU service layer surfaced image-pull and init-crash errors (`osdu-partition: ErrImagePull`, `osdu-crs-conversion: Init:CrashLoopBackOff`, `osdu-unit: CrashLoopBackOff`). These are OSDU service-level problems (image tags, config, workload identity wiring), unrelated to Bicep / CSI / Safeguards. Worth separate investigation.
+- Flux's `spi-elasticsearch` Kustomization errored until PR #2 merged because the live resource (kubectl-patched during validation) held selector fields the git manifest did not. Post-merge this converges.
 
 ## Net impact
 
@@ -161,9 +192,11 @@ curl -s "https://mcr.microsoft.com/v2/bicep/avm/res/container-service/managed-cl
 
 ## Next up
 
-- **CSI disk provisioning** — diagnose why `disk.csi.azure.com` leaves PVCs in `ExternalProvisioning`. Check storage class parameters, CSI driver pod logs, workload identity / RBAC for the CSI driver SA. Likely surfaces on any fresh cluster; not a Bicep migration concern, but blocks platform-layer reconciliation.
+- **ADR-012 amendment (small doc pass)** — amend B3 to clarify the distinction between non-bypassable ValidatingAdmissionPolicies (truly immutable) and Azure Policy-backed Gatekeeper constraints (parameterizable via policy assignment). Mirror framing from sister Terraform repo's ADR-0003.
 - **B2 follow-ups (optional)** — if cosmetic parity with sister Terraform repo is wanted later: add `networkDataplane: 'cilium'` + `networkPluginMode: 'overlay'` + `networkPlugin: 'azure'` explicitly in aks.bicep (zero behavior change, declarative intent only).
 - **Observability** — separate effort to add Azure Monitor profile + Log Analytics workspace for Container Insights and managed Prometheus, modelled after `../osdu-spi-infra/main/infra/monitoring.tf`.
+- **OSDU service-layer investigation** — separate effort to diagnose `osdu-partition` `ErrImagePull` and `osdu-crs-*` / `osdu-unit` init crash loops observed during PR #2 validation. Unrelated to Bicep/CSI/Safeguards.
+- **Retire this migration doc** — once ADR-012 amendment lands and observability is either shipped or explicitly deferred, this tracking document has served its purpose.
 
 ## References
 
