@@ -49,7 +49,13 @@ spec:
   timeout: 30m"""
 
 
-def storage_class(name: str, provisioner: str, extra_params: str = "") -> str:
+def storage_class(
+    name: str,
+    provisioner: str,
+    extra_params: str = "",
+    reclaim_policy: str = "Delete",
+    allow_volume_expansion: bool = True,
+) -> str:
     yaml = f"""\
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -59,7 +65,8 @@ metadata:
     app.kubernetes.io/managed-by: osdu-spi-stack
 provisioner: {provisioner}
 volumeBindingMode: WaitForFirstConsumer
-reclaimPolicy: Delete"""
+reclaimPolicy: {reclaim_policy}
+allowVolumeExpansion: {str(allow_volume_expansion).lower()}"""
     if extra_params:
         yaml += f"\nparameters:\n{extra_params}"
     return yaml

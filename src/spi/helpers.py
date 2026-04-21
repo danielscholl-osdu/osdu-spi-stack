@@ -362,7 +362,11 @@ def create_storage_classes():
 
     console.print("\n[bold]Creating StorageClasses...[/bold]")
     provisioner = "disk.csi.azure.com"
-    extra_params = "  skuName: Premium_LRS"
+    extra_params = (
+        "  skuName: Premium_LRS\n"
+        "  kind: Managed\n"
+        "  cachingMode: ReadOnly"
+    )
     console.print(f"  [info]Using provisioner: {provisioner}[/info]")
 
     for sc_name in STORAGE_CLASSES:

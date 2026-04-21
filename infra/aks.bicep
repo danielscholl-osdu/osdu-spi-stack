@@ -74,6 +74,19 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
     enableSecretRotation: true
     webApplicationRoutingEnabled: true
 
+    // Explicitly enable the CSI disk/file/blob drivers and snapshot
+    // controller. AKS Automatic installs these by default, but AVM
+    // v0.13.0 passes through null for unset flags; declaring them
+    // matches the sister Terraform repo
+    // (../osdu-spi-infra/main/infra/aks.tf:82-87) and removes the
+    // ambiguity that appears to leave PVCs stuck in ExternalProvisioning
+    // on fresh clusters. AVM exposes these as four scalar booleans
+    // rather than a nested storageProfile block.
+    enableStorageProfileDiskCSIDriver: true
+    enableStorageProfileFileCSIDriver: true
+    enableStorageProfileBlobCSIDriver: true
+    enableStorageProfileSnapshotController: true
+
     // System pool. AVM requires primaryAgentPoolProfiles even though
     // Automatic uses Karpenter for user workloads; this pool carries
     // system addons only.
