@@ -12,7 +12,7 @@ Last updated: 2026-04-21
 | Phase 2 Stage A — AKS-in-AVM spike | ✅ Complete, ✅ VIABLE | Branch `spike/aks-bicep-avm` (reference only) |
 | Phase 2 Stage B1 — cluster via AVM | ✅ Shipped | Direct commit on `main` (solo workflow, no PR) |
 | Phase 2 Stage B2 — tighten Istio config | ⏳ Not started | Revision pin + Cilium + Azure Monitor evaluation |
-| Phase 2 Stage B3 — remove `_configure_safeguards` | ⏳ Not started | Delete function + amend ADR-012 |
+| Phase 2 Stage B3 — remove `_configure_safeguards` | ✅ Shipped | Direct commit on `main` |
 | Phase 2 Stage C — other modules to AVM | 🚫 Dropped | See Stage A findings below |
 
 ## What's in each branch
@@ -85,24 +85,23 @@ User-directed solo workflow: each stage ships as a direct commit on `main`, no P
 - [ ] Evaluate adding `networkDataplane: 'cilium'` — Terraform repo uses it; verify compatibility with AKS-Istio add-on (the earlier Microsoft docs noted Cilium/Istio conflicts, but Terraform repo has both working; confirm before adopting)
 - [ ] Consider whether Azure Monitor profile should be declared here (Terraform repo has `azure_monitor_profile.metrics.enabled: true`)
 
-### B3 — remove `_configure_safeguards`
+### B3 — remove `_configure_safeguards` ✅ Shipped
 
-- [ ] Delete `_configure_safeguards` function and its call site in `azure_infra.py`.
-- [ ] Add a short comment at the old call site explaining Automatic enforces safeguards via a non-bypassable ValidatingAdmissionPolicy.
-- [ ] Amend `docs/decisions/012-bicep-avm-for-azure-paas.md` Migration section:
-  - Change Stage 5 description to reflect B1 shipped
-  - Note Stage C was dropped with rationale
-  - Mark full migration as shipped
+- [x] Deleted `_configure_safeguards` function and its call site in `azure_infra.py` (file now 471 LOC, down from 495).
+- [x] Added a short comment at the old call site explaining Automatic enforces safeguards via a non-bypassable ValidatingAdmissionPolicy and that the local Helm chart is written to satisfy the policy.
+- [x] Amended `docs/decisions/012-bicep-avm-for-azure-paas.md`:
+  - Stage 5 description updated to reflect AVM-based AKS shipped
+  - Added Deployment Safeguards rationale note
+  - Added AVM adoption scope note (Stage C drop)
+  - Updated "Stays imperative" and Consequences LOC numbers
 
 ## Net impact
-
-`src/spi/azure_infra.py` AKS-related code: ~190 LOC → ~60 LOC after B3 lands.
 
 Overall `azure_infra.py` progression:
 - Before Phase 1 (pure imperative): ~1,012 LOC
 - After Phase 1 (PaaS to Bicep): 563 LOC
 - After B1 (AKS to AVM): 495 LOC
-- After B3 (drop `_configure_safeguards`): ~470 LOC (projected)
+- After B3 (drop `_configure_safeguards`): 471 LOC ✅
 
 ## Resumption commands
 

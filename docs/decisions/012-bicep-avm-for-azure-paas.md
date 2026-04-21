@@ -14,22 +14,26 @@ Bicep inherits ARM's idempotency and parallel orchestration without a state file
 
 Migrate Azure PaaS provisioning from imperative `az` CLI commands to Bicep templates, with a thin Python orchestrator retained for the seams Bicep does not cover.
 
-The initial implementation uses raw Bicep resource declarations (under `infra/modules/`) rather than Azure Verified Modules. Raw Bicep was chosen for this pass because it removes an external dependency (MCR module downloads, version pinning maintenance) and eliminates compile-time surprises from AVM schema mismatches. Migration to AVM is an ongoing evaluation and can happen module-by-module; no decision is made to block on it.
+PaaS resources use raw Bicep resource declarations under `infra/modules/`. Raw Bicep removes an external dependency (MCR module downloads, version pinning maintenance) and eliminates compile-time surprises from AVM schema mismatches. A follow-up spike evaluated moving those modules to AVM and concluded the gain was not worth the cost (see the Migration section).
 
-**Moves to Bicep (in `infra/modules/`):**
-- Managed Identity + federated credentials (`identity.bicep`)
-- Key Vault (`keyvault.bicep`)
-- Container Registry (`acr.bicep`)
-- CosmosDB Gremlin account + database + graph (`cosmos-gremlin.bicep`)
-- Per-partition CosmosDB SQL + Service Bus + Storage (`partition.bicep`)
-- Common Storage account + blob containers + table service (`storage-common.bicep`)
-- Scoped RBAC role assignments (`rbac.bicep`)
+AKS Automatic is the exception: `infra/aks.bicep` uses the AVM `container-service/managed-cluster` module because Automatic's required configuration (SAMI, Karpenter, managed NAT gateway, Ephemeral OS disks, addons) is non-trivial to replicate correctly in hand-written Bicep, and AVM bundles expert defaults for it.
+
+**Moves to Bicep:**
+- Managed Identity + federated credentials (`infra/modules/identity.bicep`)
+- Key Vault (`infra/modules/keyvault.bicep`)
+- Container Registry (`infra/modules/acr.bicep`)
+- CosmosDB Gremlin account + database + graph (`infra/modules/cosmos-gremlin.bicep`)
+- Per-partition CosmosDB SQL + Service Bus + Storage (`infra/modules/partition.bicep`)
+- Common Storage account + blob containers + table service (`infra/modules/storage-common.bicep`)
+- Scoped RBAC role assignments (`infra/modules/rbac.bicep`)
+- AKS Automatic cluster + managed Istio (`infra/aks.bicep`, via AVM `container-service/managed-cluster`)
 
 **Stays imperative in Python:**
 - Resource group creation
 - Soft-deleted Key Vault pre-check and `az keyvault recover` (ARM cannot branch on a live query)
-- AKS Automatic + managed Istio setup (AVM AKS module maturity for the Automatic SKU + `az aks mesh enable-*` sequence needs validation; deferred)
-- `az aks get-credentials` and `az k8s-configuration flux` (operational, not resources)
+- `az aks get-credentials` (kubeconfig merge; not a resource)
+- `az aks mesh enable-istio-cni` (AVM v0.13.0 types `proxyRedirectionMechanism` out of IstioComponents; what-if accepts it, the RP rejects at deploy time)
+- `az k8s-configuration flux` (operational, not a resource)
 - Key Vault secret value writes (data-plane; Bicep owns the vault and RBAC, Python writes values from deployment outputs)
 - Kubernetes bootstrap and Flux activation (unchanged)
 
@@ -37,7 +41,7 @@ AVM module versions are pinned explicitly in each Bicep file. Upgrades are manua
 
 ## Consequences
 
-- `src/spi/azure_infra.py` shrinks from ~1,012 LOC to ~200 to 300 LOC: a pre-check step, a Bicep deployment call, output parsing, and Key Vault secret value writes.
+- `src/spi/azure_infra.py` shrinks from ~1,012 LOC to ~470 LOC: a pre-check step, the AKS Bicep deploy, post-deploy CNI chaining, the main Bicep deploy, output parsing, and Key Vault secret value writes.
 - Imperative ordering workarounds (federated-credential throttling, mesh-update waits, soft-delete recovery dance, per-container parallel loops via `ThreadPoolExecutor`) go away or shrink dramatically.
 - The CLI gains a `--dry-run` capability via `az deployment group what-if`, which has no equivalent in the current imperative code.
 - Debugging shifts from per-command stderr panels to ARM deployment operation logs. Mitigated by streaming deployment operations in verbose mode.
@@ -53,8 +57,12 @@ The migration is staged in five phases, each independently shippable:
 2. **Shared resources** -- Key Vault, ACR, Gremlin account, common Storage.
 3. **Per-partition resources** -- Cosmos SQL (+ system DB on the primary partition), Service Bus with topics and subscriptions, partition Storage with containers.
 4. **RBAC** -- `infra/modules/rbac.bicep` with deterministic `guid()` names so re-deploys update rather than duplicate.
-5. **AKS Automatic + managed Istio + Deployment Safeguards** -- deferred pending a spike. `sku.name='Automatic'`, `serviceMeshProfile`, and `safeguardsProfile` are all expressible in recent API versions (2024-09-02-preview+), but AKS Automatic silently drops properties it does not support, so a dedicated validation pass is required before migrating. If the spike confirms viability, this phase migrates in three PRs (cluster, safeguards, mesh). If not, AKS remains imperative indefinitely.
+5. **AKS Automatic + managed Istio** -- declared in `infra/aks.bicep` via the AVM `container-service/managed-cluster` module (v0.13.0). The module uses a system-assigned managed identity, `outboundType='managedNATGateway'`, Ephemeral OS disks on the system pool, and a `serviceMeshProfile` that turns on Istio with an External ingress gateway. Two AVM gaps remain imperative: `az aks get-credentials` (kubeconfig merge, not a resource) and `az aks mesh enable-istio-cni` (the AVM v0.13.0 IstioComponents schema types out `proxyRedirectionMechanism`).
 
-Phases 1-4 shipped together in commit `782649b`. Phase 5 is tracked separately; this ADR will be updated when a decision is reached.
+Phases 1-4 shipped together in commit `782649b`. Phase 5 shipped in two follow-up commits: cluster migration to AVM, then removal of the now-redundant `_configure_safeguards` step.
 
-A `spi up --dry-run` flag (added post-migration) runs `az deployment group what-if` against `infra/main.bicep`, giving reviewable ARM-level diffs before any resource provisioning.
+**Deployment Safeguards** were not migrated as a distinct Bicep concern. On the AKS Automatic SKU, safeguards are enforced via a non-bypassable `ValidatingAdmissionPolicy` -- they cannot be relaxed from the cluster side. The local Helm chart at `software/charts/osdu-spi-service` is written to satisfy the policy directly, so the prior `az aks update --safeguards-level Warning` workaround is no longer needed.
+
+**AVM adoption scope** -- an initial spike evaluated migrating the PaaS modules (Key Vault, ACR, Storage, Cosmos, Service Bus, Managed Identity) to AVM as well. The conclusion was that the cost outweighed the benefit: AVM for those resource types is a thin passthrough without materially different defaults, and the sister Terraform repo (`../osdu-spi-infra`) uses AVM only for the managed cluster for the same reason. The PaaS modules stay as hand-written Bicep; AVM is used only where it meaningfully encapsulates expert configuration (AKS).
+
+A `spi up --dry-run` flag (added post-migration) runs `az deployment group what-if` against both `infra/aks.bicep` and `infra/main.bicep`, giving reviewable ARM-level diffs before any resource provisioning.

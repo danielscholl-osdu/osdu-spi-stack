@@ -163,37 +163,13 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
     # init container needs.
     _ensure_istio_cni_chaining(config)
 
-    # Relax Deployment Safeguards for the three namespaces we manage.
-    # On the Automatic SKU this is effectively a no-op (safeguards are
-    # enforced via a non-bypassable ValidatingAdmissionPolicy and
-    # cannot be relaxed), but the call is retained for behavior parity
-    # with the pre-migration path. Removing it is tracked in B3.
-    _configure_safeguards(config)
+    # Deployment Safeguards are not relaxed here. On the Automatic SKU
+    # they are enforced via a non-bypassable ValidatingAdmissionPolicy
+    # that cannot be tuned via `az aks update --safeguards-level`; the
+    # local Helm chart (software/charts/osdu-spi-service) is written to
+    # satisfy the policy instead.
 
     return aks_outputs
-
-
-def _configure_safeguards(config: Config):
-    """Attempt to relax AKS Deployment Safeguards for managed namespaces.
-
-    No-op on the Automatic SKU -- safeguards there are enforced via a
-    non-bypassable ValidatingAdmissionPolicy. Retained for parity with
-    the imperative path; slated for removal in migration stage B3.
-    """
-    console.print("\n[bold]Configuring Deployment Safeguards...[/bold]")
-    run_command(
-        [
-            "az", "aks", "update",
-            "--resource-group", config.resource_group,
-            "--name", config.cluster_name,
-            "--safeguards-level", "Warning",
-            "--safeguards-excluded-ns", "platform,osdu,foundation",
-            "--output", "none",
-        ],
-        description="Safeguards: Warning + exclude platform,osdu,foundation",
-        check=False,
-    )
-    display_result("Deployment Safeguards configured for managed namespaces")
 
 
 def _ensure_istio_cni_chaining(config: Config):
