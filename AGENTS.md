@@ -9,14 +9,20 @@ Repository: `danielscholl-osdu/osdu-spi-stack`
 src/spi/                  Python CLI (Typer + Rich + Pydantic)
   cli.py                  Commands: check, up, down, status, info, reconcile
   config.py               Config model (Azure-only, Profile enum)
-  checks.py               Tool prerequisites (az, kubectl, flux, helm)
-  helpers.py              Command execution, display, kubectl helpers
-  azure_infra.py          Azure PaaS provisioning via az CLI
+  checks.py               Tool prerequisites (az, bicep, kubectl, flux, helm)
+  helpers.py              Command execution, Bicep deployment, kubectl helpers
+  azure_infra.py          Thin orchestrator: RG + AKS imperative, PaaS via Bicep
   secrets.py              In-cluster secret generation (ES, Redis, PG)
   templates.py            YAML templates (GitRepository, Kustomization, ConfigMap)
   status.py               Deployment health dashboard
   info.py                 Endpoint discovery and credential display
   providers/azure.py      Orchestrates: infra -> bootstrap -> GitOps
+
+infra/                    Bicep templates for Azure PaaS provisioning
+  main.bicep              RG-scoped entrypoint; wires module deployments
+  modules/                Per-concern modules (identity, kv, acr, cosmos-gremlin,
+                          partition, storage-common, rbac)
+  params/default.bicepparam  Default parameter values for manual deployment
 
 software/
   charts/osdu-spi-service/ Local Helm chart (AKS Safeguards-compliant)
@@ -74,6 +80,9 @@ uv run spi reconcile --resume                # Unfreeze GitOps
 - Three namespaces: foundation, platform, osdu (ADR-006)
 - 7-layer Kustomization ordering with explicit dependsOn (ADR-007)
 - In-cluster only for ES, Redis, PG (Airflow); everything else is Azure PaaS (ADR-008)
+- Azure PaaS provisioning declared in Bicep (`infra/`); RG + AKS + soft-delete
+  recovery + post-deploy Key Vault writes remain imperative (ADR-012, supersedes
+  the "use az CLI" portion of ADR-003 for PaaS resources)
 
 ## OSDU Service Provider Context
 
@@ -137,8 +146,11 @@ Services use Azure SPI images from the OSDU community registry:
 
 ## Deployment Workflow
 
-1. `spi check` -- verify az, kubectl, flux, helm installed
+1. `spi check` -- verify az, bicep, kubectl, flux, helm installed
 2. `spi up --env dev1` -- provisions Azure infra (~15 min), bootstraps K8s, activates GitOps
+   - RG + AKS via `az` CLI
+   - Identity + KV + ACR + CosmosDB + Service Bus + Storage + RBAC via
+     a single `az deployment group create` against `infra/main.bicep`
 3. `spi status --watch` -- monitor Flux reconciliation progress
 4. Wait for all Kustomizations and HelmReleases to become Ready
 5. `spi info` -- get gateway IP and API endpoints
