@@ -54,6 +54,7 @@ uv run spi check                            # Validate prerequisites
 uv run spi up --env dev1                     # Deploy everything
 uv run spi up --env dev1 --profile full      # Deploy with all services
 uv run spi up --env dev1 --partition p1 --partition p2  # Multi-partition
+uv run spi up --env dev1 --dry-run           # Preview Bicep changes (what-if)
 uv run spi down --env dev1                   # Delete all Azure resources
 uv run spi status                            # Health dashboard
 uv run spi status --watch                    # Continuous refresh

@@ -143,12 +143,14 @@ uv run spi <command> [OPTIONS]
 
 Commands:
   check      Validate required tools are installed       
-  up         Provision Azure infra and deploy the stack   --env NAME [--profile] [--partition]
+  up         Provision Azure infra and deploy the stack   --env NAME [--profile] [--partition] [--dry-run]
   status     Deployment health dashboard                  [--watch]
   down       Delete all Azure resources                   --env NAME
   info       Show endpoints and optional credentials      [--show-secrets]
   reconcile  Force Flux to re-sync from Git               [--suspend] [--resume]
 ```
+
+Use `--dry-run` on `spi up` to preview the Bicep changes (`az deployment group what-if`) before any Azure resources are created beyond the resource group.
 
 
 ## Documentation

@@ -1,6 +1,6 @@
 # ADR-012: Bicep + Azure Verified Modules for Azure PaaS Provisioning
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## Context
 
@@ -47,4 +47,14 @@ AVM module versions are pinned explicitly in each Bicep file. Upgrades are manua
 
 ## Migration
 
-Performed in five phases, each independently shippable; see the implementation plan at `.claude/plans/yes-create-a-detailed-peppy-manatee.md` for phase detail and verification steps. Phase 5 (AKS) ships only if AVM AKS module support for the Automatic SKU and managed Istio is confirmed; otherwise AKS remains imperative indefinitely.
+The migration is staged in five phases, each independently shippable:
+
+1. **Identity + federated credentials** -- `infra/modules/identity.bicep` replaces the federated-credential loop.
+2. **Shared resources** -- Key Vault, ACR, Gremlin account, common Storage.
+3. **Per-partition resources** -- Cosmos SQL (+ system DB on the primary partition), Service Bus with topics and subscriptions, partition Storage with containers.
+4. **RBAC** -- `infra/modules/rbac.bicep` with deterministic `guid()` names so re-deploys update rather than duplicate.
+5. **AKS Automatic + managed Istio + Deployment Safeguards** -- deferred pending a spike. `sku.name='Automatic'`, `serviceMeshProfile`, and `safeguardsProfile` are all expressible in recent API versions (2024-09-02-preview+), but AKS Automatic silently drops properties it does not support, so a dedicated validation pass is required before migrating. If the spike confirms viability, this phase migrates in three PRs (cluster, safeguards, mesh). If not, AKS remains imperative indefinitely.
+
+Phases 1-4 shipped together in commit `782649b`. Phase 5 is tracked separately; this ADR will be updated when a decision is reached.
+
+A `spi up --dry-run` flag (added post-migration) runs `az deployment group what-if` against `infra/main.bicep`, giving reviewable ARM-level diffs before any resource provisioning.

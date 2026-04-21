@@ -33,10 +33,13 @@ Hybrid model:
     they derive from Bicep output values plus the Python-managed
     in-cluster seed passwords.
 
-The function ``provision_azure_infra(config)`` returns the same shape of
-infra_outputs dict as before so downstream callers
+The function ``provision_azure_infra(config, dry_run=False)`` returns the
+same shape of infra_outputs dict as before so downstream callers
 (_create_osdu_config, populate_keyvault_secrets,
-write_keyvault_bootstrap_secrets) are unchanged.
+write_keyvault_bootstrap_secrets) are unchanged. When ``dry_run`` is True,
+only the Azure login check, resource group creation, and ``az deployment
+group what-if`` run; AKS and all post-deploy data-plane steps are skipped
+and an empty outputs dict is returned.
 """
 
 import json
@@ -488,19 +491,21 @@ def populate_keyvault_secrets(config: Config, infra_outputs: Dict[str, Any]):
 # Orchestrator
 # ─────────────────────────────────────────────────────────────
 
-def provision_azure_infra(config: Config) -> Dict[str, Any]:
+def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, Any]:
     """Provision all Azure PaaS resources. Returns infra_outputs for K8s bootstrap.
 
     Order:
       1. Verify Azure login; capture tenant/subscription IDs.
-      2. Create resource group (imperative).
-      3. Create AKS Automatic + mesh (imperative, Phase 5 deferred).
-      4. Recover soft-deleted Key Vault if present (imperative pre-check).
-      5. Fetch AKS OIDC issuer URL (required for federated credentials).
-      6. Deploy Bicep template (identity + FCs, KV, ACR, Gremlin, common
-         storage, per-partition Cosmos/ServiceBus/Storage, RBAC).
-      7. Fetch Cosmos primary keys (secure; not in Bicep outputs).
-      8. Populate Key Vault secret values.
+      2. Create resource group (imperative; required by ``az deployment
+         group what-if`` too, so always runs).
+      3. Create AKS Automatic + mesh (skipped in dry-run).
+      4. Recover soft-deleted Key Vault if present (skipped in dry-run).
+      5. Fetch AKS OIDC issuer URL (skipped in dry-run; empty string makes
+         ``identity.bicep`` omit federated credentials from the preview).
+      6. Deploy Bicep template (or run what-if preview if ``dry_run`` is
+         True).
+      7. Fetch Cosmos primary keys (skipped in dry-run).
+      8. Populate Key Vault secret values (skipped in dry-run).
     """
     outputs: Dict[str, Any] = {}
 
@@ -518,11 +523,20 @@ def provision_azure_infra(config: Config) -> Dict[str, Any]:
     )
 
     create_resource_group(config)
-    create_aks_automatic(config)
-    _recover_soft_deleted_keyvault(config)
-    oidc_issuer = get_aks_oidc_issuer(config)
 
-    console.print("\n[bold]Deploying Azure PaaS resources via Bicep...[/bold]")
+    if dry_run:
+        console.print(
+            "\n[warning]Dry-run: skipping AKS creation, Key Vault soft-delete "
+            "recovery, and OIDC issuer lookup.[/warning]"
+        )
+        oidc_issuer = ""
+    else:
+        create_aks_automatic(config)
+        _recover_soft_deleted_keyvault(config)
+        oidc_issuer = get_aks_oidc_issuer(config)
+
+    header = "Previewing" if dry_run else "Deploying"
+    console.print(f"\n[bold]{header} Azure PaaS resources via Bicep...[/bold]")
     console.print(
         "  [info]Identity, KeyVault, ACR, CosmosDB, Service Bus, Storage, "
         "and RBAC role assignments are declared in infra/main.bicep.[/info]"
@@ -533,7 +547,13 @@ def provision_azure_infra(config: Config) -> Dict[str, Any]:
         parameters=bicep_params,
         resource_group=config.resource_group,
         deployment_name=f"spi-{config.env or 'base'}",
+        what_if=dry_run,
     )
+
+    if dry_run:
+        display_result("Bicep what-if preview complete")
+        return outputs
+
     outputs.update(_reshape_bicep_outputs(bicep_outputs))
     display_result("Bicep deployment complete")
 
