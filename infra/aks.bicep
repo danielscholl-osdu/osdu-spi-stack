@@ -93,9 +93,17 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
 
     // Managed Istio with External ingress gateway. CNI chaining is
     // applied imperatively post-deploy (see top-of-file note).
+    //
+    // revisions is pinned to prevent AKS from silently upgrading the
+    // mesh under us. `asm-1-28` matches the sister Terraform repo
+    // (../osdu-spi-infra/main/infra/aks.tf) and is the current AVM
+    // default; validated with 1.34 on KubernetesOfficial and LTS.
     serviceMeshProfile: {
       mode: 'Istio'
       istio: {
+        revisions: [
+          'asm-1-28'
+        ]
         components: {
           ingressGateways: [
             {

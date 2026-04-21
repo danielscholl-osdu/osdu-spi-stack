@@ -11,7 +11,7 @@ Last updated: 2026-04-21
 | Phase 1 — PaaS to raw Bicep + `spi up --dry-run` | ✅ Shipped | Merged via PR #1 |
 | Phase 2 Stage A — AKS-in-AVM spike | ✅ Complete, ✅ VIABLE | Branch `spike/aks-bicep-avm` (reference only) |
 | Phase 2 Stage B1 — cluster via AVM | ✅ Shipped | Direct commit on `main` (solo workflow, no PR) |
-| Phase 2 Stage B2 — tighten Istio config | ⏳ Not started | Revision pin + Cilium + Azure Monitor evaluation |
+| Phase 2 Stage B2 — tighten Istio config | ⏳ Partial | Revision pin ✅ shipped; Cilium/Azure Monitor dropped (see note) |
 | Phase 2 Stage B3 — remove `_configure_safeguards` | ✅ Shipped | Direct commit on `main` |
 | Phase 2 Stage C — other modules to AVM | 🚫 Dropped | See Stage A findings below |
 
@@ -79,7 +79,16 @@ User-directed solo workflow: each stage ships as a direct commit on `main`, no P
 
 `src/spi/azure_infra.py` went from 563 → 495 LOC (-68); the remaining reduction is in B3.
 
-### B2 — tighten Istio config
+### B2 — tighten Istio config (partially shipped)
+
+**Shipped:**
+- [x] Pinned `revisions: ['asm-1-28']` in `infra/aks.bicep` `serviceMeshProfile.istio`. Matches sister Terraform repo and current AVM default; validated live against `spi-stack-ci1` (incremental deploy succeeded in 2m53s, no cluster disruption, `az aks show` confirms pinned revision).
+
+**Dropped:**
+- `networkDataplane: 'cilium'` — AKS Automatic already defaults to `networkPlugin: azure` + `networkPluginMode: overlay` + `networkDataplane: cilium` (verified on the live cluster). Setting them explicitly in Bicep would be declarative parity with the sister Terraform repo but zero behavior change; deferred as cosmetic.
+- `azureMonitorProfile` + Log Analytics workspace — real new resources, materially out of scope for a "tighten Istio" PR. Track in a dedicated observability effort.
+
+**Original checklist:**
 
 - [ ] Pin `revisions: ['asm-1-28']` in `serviceMeshProfile.istio` (currently AVM picks AKS default)
 - [ ] Evaluate adding `networkDataplane: 'cilium'` — Terraform repo uses it; verify compatibility with AKS-Istio add-on (the earlier Microsoft docs noted Cilium/Istio conflicts, but Terraform repo has both working; confirm before adopting)
