@@ -34,6 +34,18 @@ TOOL_REGISTRY = {
             "windows": "winget install Microsoft.AzureCLI",
         },
     },
+    "bicep": {
+        # Bicep is bundled with recent az and invoked via `az bicep`.
+        # check_cmd overrides the default [name] + check_args pattern so we
+        # do not require a standalone bicep binary on PATH.
+        "check_cmd": ["az", "bicep", "version"],
+        "description": "Bicep compiler (bundled with Azure CLI)",
+        "install": {
+            "darwin": "az bicep install",
+            "linux": "az bicep install",
+            "windows": "az bicep install",
+        },
+    },
     "kubectl": {
         "check_args": ["version", "--client"],
         "description": "Kubernetes CLI",
@@ -91,10 +103,14 @@ def _is_windows() -> bool:
 def check_tool_status(name: str, check_args: Optional[list] = None) -> tuple:
     """Check if a tool is installed and capture version output."""
     info = TOOL_REGISTRY.get(name, {})
-    args = check_args or info.get("check_args", ["--version"])
+    # check_cmd (if present) is a full argv; otherwise build [name] + args
+    cmd = info.get("check_cmd")
+    if cmd is None:
+        args = check_args or info.get("check_args", ["--version"])
+        cmd = [name] + args
     try:
         result = subprocess.run(
-            [name] + args, capture_output=True, text=True, timeout=10,
+            cmd, capture_output=True, text=True, timeout=10,
             shell=_is_windows(),
         )
         if result.returncode == 0:

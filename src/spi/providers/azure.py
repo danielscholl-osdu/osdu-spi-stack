@@ -79,10 +79,18 @@ def _create_osdu_config(config: Config, infra_outputs: dict):
     display_result("Workload Identity ServiceAccounts created")
 
 
-def deploy_azure(config: Config):
-    """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps."""
+def deploy_azure(config: Config, dry_run: bool = False):
+    """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps.
+
+    In ``dry_run`` mode, only the Azure PaaS Bicep preview runs; AKS, the
+    Kubernetes bootstrap phase, and GitOps activation are skipped so the
+    caller can inspect what would change without actually provisioning.
+    """
     # Phase 1-3: Azure infrastructure
-    infra_outputs = provision_azure_infra(config)
+    infra_outputs = provision_azure_infra(config, dry_run=dry_run)
+
+    if dry_run:
+        return
 
     # Phase 4: Kubernetes bootstrap
     ensure_namespaces()

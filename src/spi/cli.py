@@ -141,6 +141,11 @@ def up(
     location: str = typer.Option("eastus2", "--location", help="Azure region"),
     data_partitions: Optional[List[str]] = typer.Option(
         None, "--partition", help="Data partition names (can specify multiple)"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Preview Azure PaaS changes via Bicep what-if. Creates the resource group "
+             "(required by what-if) but skips AKS, Kubernetes bootstrap, and GitOps.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show all sub-resource commands"),
 ):
     """Provision Azure infrastructure and deploy the OSDU SPI stack."""
@@ -154,20 +159,32 @@ def up(
     )
     config.verbose = verbose
 
-    console.print(Panel(
-        "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack\n"
-        "AKS Automatic + Azure PaaS + Flux CD GitOps",
-        border_style="cyan",
-    ))
+    title = "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack"
+    if dry_run:
+        title += "\n[warning]DRY RUN: previewing Bicep changes only[/warning]"
+    else:
+        title += "\nAKS Automatic + Azure PaaS + Flux CD GitOps"
+
+    console.print(Panel(title, border_style="cyan"))
 
     _show_config(config)
     check_prerequisites(PREREQ_TOOLS)
 
     try:
         from .providers.azure import deploy_azure
-        deploy_azure(config)
-        _show_next_steps(config)
-        console.print("\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]\n")
+        deploy_azure(config, dry_run=dry_run)
+        if dry_run:
+            console.print(
+                "\n[success]Dry-run complete. No AKS cluster or Kubernetes workloads "
+                "were provisioned.[/success]"
+            )
+            console.print(
+                "[dim]Federated credentials and anything that depends on the AKS OIDC "
+                "issuer are skipped in the preview; a real run will add them.[/dim]\n"
+            )
+        else:
+            _show_next_steps(config)
+            console.print("\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]\n")
     except Exception as e:
         console.print(f"\n[error]Deployment failed: {e}[/error]")
         raise typer.Exit(code=1)

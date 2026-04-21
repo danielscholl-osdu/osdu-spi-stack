@@ -8,7 +8,7 @@ SPI Stack deploys the OSDU platform on Azure using a hybrid model: imperative CL
 
 SPI Stack has three control planes working together:
 
-1. **The `spi` CLI** bootstraps the environment. It provisions Azure PaaS resources via `az` commands, creates an AKS Automatic cluster, configures Workload Identity, and hands off control to Flux.
+1. **The `spi` CLI** bootstraps the environment. It provisions the Resource Group and AKS Automatic cluster via `az` commands, then submits a Bicep template (`infra/main.bicep`) that declares the rest of the Azure PaaS resources (Managed Identity with federated credentials, Key Vault, ACR, CosmosDB Gremlin and SQL accounts, Service Bus, Storage, and RBAC role assignments). After that, it writes Key Vault secret values and hands off to Flux.
 2. **Flux CD** manages desired-state reconciliation. It watches the git repository and OCI chart registry, then continuously converges the cluster to match.
 3. **Kubernetes operators** (CNPG, ECK, cert-manager) manage the lifecycle of individual middleware systems beneath the Flux layer.
 
@@ -44,13 +44,13 @@ The deployment pipeline shows both phases: the CLI's five imperative bootstrap s
 
 ### CLI phases
 
-| Phase | What | Resources |
-|-------|------|-----------|
-| 1. Core Infra | Foundation resources | Resource Group, AKS Automatic, Managed Identity, Key Vault, ACR |
-| 2. Data Infra | Data platform | CosmosDB (Gremlin + SQL), Service Bus, Storage Accounts |
-| 3. IAM | Identity and access | Federated credentials, RBAC role assignments, Key Vault secrets |
-| 4. K8s Bootstrap | Cluster prep | Namespaces, StorageClasses, secrets, ConfigMap, ServiceAccount |
-| 5. Activate Flux | GitOps handoff | AKS native Flux extension pointing to this repo |
+| Phase | Mechanism | Resources |
+|-------|-----------|-----------|
+| 1. Core Infra (imperative) | `az` CLI | Resource Group, AKS Automatic with managed Istio |
+| 2. Azure PaaS (declarative) | Bicep deployment (`infra/main.bicep`) | Managed Identity + federated credentials, Key Vault, ACR, CosmosDB Gremlin + per-partition SQL, per-partition Service Bus + topics/subscriptions, common + per-partition Storage, RBAC role assignments |
+| 3. Post-deploy secrets (imperative) | `az cosmosdb keys list` + `az keyvault secret set` | CosmosDB primary keys, Key Vault secret values |
+| 4. K8s Bootstrap | `kubectl apply` | Namespaces, StorageClasses, secrets, ConfigMap, ServiceAccount |
+| 5. Activate Flux | `az k8s-configuration flux create` | AKS native Flux extension pointing to this repo |
 
 A full `spi up` typically takes ~15 minutes, primarily for Azure resource provisioning.
 

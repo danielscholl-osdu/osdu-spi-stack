@@ -1,6 +1,6 @@
 # ADR-003: CLI + GitOps Hybrid Deployment
 
-**Status:** Accepted
+**Status:** Accepted. Superseded in part by ADR-012 (Bicep + AVM for Azure PaaS provisioning): the "Phase 1-3 via `az` CLI" portion of the decision below is replaced by a single Bicep deployment for all PaaS resources. Resource Group, AKS Automatic, soft-delete Key Vault recovery, and Key Vault secret value writes remain imperative in the CLI.
 
 ## Context
 
