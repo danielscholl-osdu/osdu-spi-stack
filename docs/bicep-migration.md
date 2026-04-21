@@ -10,14 +10,16 @@ Last updated: 2026-04-21
 |---|---|---|
 | Phase 1 — PaaS to raw Bicep + `spi up --dry-run` | ✅ Shipped | Merged via PR #1 |
 | Phase 2 Stage A — AKS-in-AVM spike | ✅ Complete, ✅ VIABLE | Branch `spike/aks-bicep-avm` (reference only) |
-| Phase 2 Stage B1 — cluster via AVM | ✅ Shipped | Direct commit on `main` (solo workflow, no PR) |
+| Phase 2 Stage B1 — cluster via AVM | ✅ Shipped + live-validated | Direct commit on `main` (solo workflow, no PR) |
 | Phase 2 Stage B2 — tighten Istio config | ⏳ Partial | Revision pin ✅ shipped; Cilium/Azure Monitor dropped (see note) |
-| Phase 2 Stage B3 — remove `_configure_safeguards` | ✅ Shipped | Direct commit on `main` |
+| Phase 2 Stage B3 — remove `_configure_safeguards` | ✅ Shipped + live-validated | Direct commit on `main` |
 | Phase 2 Stage C — other modules to AVM | 🚫 Dropped | See Stage A findings below |
+| FIC concurrency (unplanned, surfaced by live deploy) | ✅ Shipped + live-validated | `@batchSize(1)` on identity.bicep FIC loop |
+| AKS Azure-RBAC grant (unplanned, surfaced by live deploy) | ✅ Shipped + live-validated | `_grant_deployer_cluster_admin` + propagation wait in azure_infra.py |
 
 ## What's in each branch
 
-- **`main`** — production. Has Phase 1 PaaS Bicep, `--dry-run`, and B1 (AKS via AVM).
+- **`main`** — production. Has Phase 1 PaaS Bicep, `--dry-run`, B1 (AKS via AVM), B2 (Istio revision pin), B3 (_configure_safeguards removal), FIC concurrency fix, and the AKS Azure-RBAC cluster-admin grant.
 - **`spike/aks-bicep-avm`** — kept as a historical reference to the working AKS-via-AVM template. Not active.
 
 ## Stage A findings (2026-04-21)
@@ -75,9 +77,9 @@ User-directed solo workflow: each stage ships as a direct commit on `main`, no P
 - [x] Removed `clusterName` from `infra/main.bicep` and both `.bicepparam` files; AKS is a separate Bicep template now, so `main.bicep` no longer threads it through.
 - [x] Updated `src/spi/azure_infra.py` module docstring.
 - [x] `uv run pytest tests/test_bicep_compile.py` — 10/10 green (including `aks.bicep`).
-- [ ] Live deploy validation: `uv run spi up --env ci1` and confirm `az aks show -g spi-stack-ci1 -n spi-stack-ci1 --query serviceMeshProfile.istio.components.proxyRedirectionMechanism -o tsv` returns `CNIChaining`. **Deferred to next session.**
+- [x] Live deploy validation against `spi-stack-ci1` (2026-04-21): `proxyRedirectionMechanism: CNIChaining` confirmed, Istio `asm-1-28` active, `networkDataplane: cilium` (Automatic default), 3 Ready nodes. RG torn down.
 
-`src/spi/azure_infra.py` went from 563 → 495 LOC (-68); the remaining reduction is in B3.
+`src/spi/azure_infra.py` went from 563 → 495 LOC (-68) for B1 itself; B3 drops another 24 LOC; the new RBAC grant adds ~76 LOC. End state: 547 LOC.
 
 ### B2 — tighten Istio config (partially shipped)
 
@@ -96,7 +98,7 @@ User-directed solo workflow: each stage ships as a direct commit on `main`, no P
 
 ### B3 — remove `_configure_safeguards` ✅ Shipped
 
-- [x] Deleted `_configure_safeguards` function and its call site in `azure_infra.py` (file now 471 LOC, down from 495).
+- [x] Deleted `_configure_safeguards` function and its call site in `azure_infra.py` (file 471 LOC after this step, down from 495).
 - [x] Added a short comment at the old call site explaining Automatic enforces safeguards via a non-bypassable ValidatingAdmissionPolicy and that the local Helm chart is written to satisfy the policy.
 - [x] Amended `docs/decisions/012-bicep-avm-for-azure-paas.md`:
   - Stage 5 description updated to reflect AVM-based AKS shipped
@@ -104,32 +106,64 @@ User-directed solo workflow: each stage ships as a direct commit on `main`, no P
   - Added AVM adoption scope note (Stage C drop)
   - Updated "Stays imperative" and Consequences LOC numbers
 
+## Unplanned fixes surfaced during live validation
+
+The first `spi up --env ci1` run after B1/B3 exposed two issues the Bicep spike and compile tests could not catch.
+
+### Federated credential concurrency (commit `d964329`)
+
+ARM's Managed Identity RP rejects concurrent writes of federated credentials under the same UAMI (`ConcurrentFederatedIdentityCredentialsWritesForSingleManagedIdentity`). Bicep's default copy-loop schedules iterations in parallel, so most of the 8 FICs in `identity.bicep` failed on a fresh deploy.
+
+Fix: `@batchSize(1)` on the `federatedCredentials` resource in `infra/modules/identity.bicep`. Adds ~1-2 minutes to first-run provisioning; re-deploys are no-ops.
+
+### AKS Azure RBAC cluster-admin grant (commit `092a308`)
+
+AKS Automatic enforces Azure RBAC for Kubernetes and disables local accounts. Before B1 this was the same, but the imperative `az aks create` path appears to have had an implicit grant (or the tenant auto-assigned a role) that the Bicep/SAMI path does not. Result: after the B1 deploy, the signed-in principal could not `kubectl create namespace`, failing K8s bootstrap.
+
+Fix: new `_grant_deployer_cluster_admin` and `_wait_for_cluster_rbac` in `src/spi/azure_infra.py`. After `az aks get-credentials`, assign the signed-in principal `Azure Kubernetes Service RBAC Cluster Admin` on the cluster resource, then poll `kubectl auth can-i create namespace` until propagation lands (typically 2-3 minutes; capped at 5).
+
+## Known issue (not introduced by this migration)
+
+On `spi-stack-ci1`, Flux's platform layer stalled in reconciliation because Redis and PostgreSQL PVCs sat in `ExternalProvisioning` indefinitely, waiting for `disk.csi.azure.com` to provision disks. Pods stayed Pending. The cluster's CSI Azure Disk driver is installed but not creating volumes.
+
+This is orthogonal to the Bicep migration -- the CSI driver, storage classes, and Flux workloads are all untouched by this work. Worth a separate investigation (likely storage-class / CSI workload-identity RBAC).
+
 ## Net impact
 
 Overall `azure_infra.py` progression:
 - Before Phase 1 (pure imperative): ~1,012 LOC
 - After Phase 1 (PaaS to Bicep): 563 LOC
 - After B1 (AKS to AVM): 495 LOC
-- After B3 (drop `_configure_safeguards`): 471 LOC ✅
+- After B3 (drop `_configure_safeguards`): 471 LOC
+- After RBAC cluster-admin grant (post-B1 fix): 547 LOC ✅
 
 ## Resumption commands
 
 ```bash
-# Confirm B1 is on main
-git log --oneline -5
+# Confirm migration state on main (expects B1/B2/B3 + FIC + RBAC grant commits)
+git log --oneline -7
 uv run pytest tests/test_bicep_compile.py
 
-# Live deploy validation (when ready to burn ~$5)
+# Re-validate end-to-end after any AKS/Bicep change
 uv run spi up --env ci1
 az aks show -g spi-stack-ci1 -n spi-stack-ci1 \
   --query serviceMeshProfile.istio.components.proxyRedirectionMechanism -o tsv
 # expected: CNIChaining
+az aks show -g spi-stack-ci1 -n spi-stack-ci1 \
+  --query "serviceMeshProfile.istio.revisions" -o tsv
+# expected: asm-1-28
 uv run spi down --env ci1
 
 # Latest AVM module versions (before any future AVM bump)
 curl -s "https://mcr.microsoft.com/v2/bicep/avm/res/container-service/managed-cluster/tags/list" \
   | python3 -c "import json,sys; print('\n'.join(sorted(json.load(sys.stdin)['tags'], key=lambda s: [int(p) for p in s.split('.')])))"
 ```
+
+## Next up
+
+- **CSI disk provisioning** — diagnose why `disk.csi.azure.com` leaves PVCs in `ExternalProvisioning`. Check storage class parameters, CSI driver pod logs, workload identity / RBAC for the CSI driver SA. Likely surfaces on any fresh cluster; not a Bicep migration concern, but blocks platform-layer reconciliation.
+- **B2 follow-ups (optional)** — if cosmetic parity with sister Terraform repo is wanted later: add `networkDataplane: 'cilium'` + `networkPluginMode: 'overlay'` + `networkPlugin: 'azure'` explicitly in aks.bicep (zero behavior change, declarative intent only).
+- **Observability** — separate effort to add Azure Monitor profile + Log Analytics workspace for Container Insights and managed Prometheus, modelled after `../osdu-spi-infra/main/infra/monitoring.tf`.
 
 ## References
 
