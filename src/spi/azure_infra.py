@@ -48,6 +48,7 @@ returned.
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -163,6 +164,13 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
     # init container needs.
     _ensure_istio_cni_chaining(config)
 
+    # AKS Automatic enforces Azure RBAC for Kubernetes authorization with
+    # local accounts disabled, so the deploying principal needs an
+    # explicit cluster-admin role assignment before kubectl can create
+    # namespaces. Role-assignment propagation to AKS typically takes
+    # 2-3 minutes; this step blocks until the permission becomes active.
+    _grant_deployer_cluster_admin(config, aks_outputs.get("clusterResourceId", ""))
+
     # Deployment Safeguards are not relaxed here. On the Automatic SKU
     # they are enforced via a non-bypassable ValidatingAdmissionPolicy
     # that cannot be tuned via `az aks update --safeguards-level`; the
@@ -170,6 +178,74 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
     # satisfy the policy instead.
 
     return aks_outputs
+
+
+def _grant_deployer_cluster_admin(config: Config, cluster_resource_id: str):
+    """Grant the signed-in principal cluster-admin on the AKS cluster and wait for propagation.
+
+    Required because AKS Automatic enforces Azure RBAC for Kubernetes and
+    disables local accounts. Without this role, ``kubectl`` operations
+    run by the deployer fail with ``User does not have access to the
+    resource in Azure``.
+    """
+    if not cluster_resource_id:
+        console.print("[warning]Cluster resource ID unavailable; skipping RBAC grant.[/warning]")
+        return
+
+    account_result = run_command(
+        ["az", "account", "show", "--output", "json"],
+        description="Resolve signed-in principal",
+        display=False,
+    )
+    account = json.loads(account_result.stdout)
+    user_oid = run_command(
+        ["az", "ad", "signed-in-user", "show", "--query", "id", "--output", "tsv"],
+        description="Get deployer object ID",
+        display=False,
+    ).stdout.strip()
+    principal_type = "User" if account.get("user", {}).get("type") == "user" else "ServicePrincipal"
+
+    console.print("\n[bold]Granting deployer cluster-admin...[/bold]")
+    run_command(
+        ["az", "role", "assignment", "create",
+         "--role", "Azure Kubernetes Service RBAC Cluster Admin",
+         "--assignee-object-id", user_oid,
+         "--assignee-principal-type", principal_type,
+         "--scope", cluster_resource_id,
+         "--output", "none"],
+        description=f"Assign cluster-admin to {user_oid[:8]}...",
+        # Idempotent: on re-deploys the assignment already exists and the
+        # CLI returns non-zero. We tolerate that and fall through to the
+        # propagation wait, which no-ops when the token already has the role.
+        check=False,
+    )
+    _wait_for_cluster_rbac()
+
+
+def _wait_for_cluster_rbac(timeout_seconds: int = 300):
+    """Poll ``kubectl auth can-i`` until AKS Azure RBAC recognizes the grant.
+
+    New role assignments take 2-3 minutes (occasionally up to 5) to
+    propagate to the AKS authorization layer. Namespace creation is a
+    representative cluster-scoped check.
+    """
+    with console.status("[bold]Waiting for AKS RBAC propagation (~2-3 min)...[/bold]"):
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            result = run_command(
+                ["kubectl", "auth", "can-i", "create", "namespace"],
+                description="Probe AKS RBAC",
+                display=False,
+                check=False,
+            )
+            if result.returncode == 0 and "yes" in (result.stdout or "").lower():
+                display_result("AKS Azure RBAC propagated")
+                return
+            time.sleep(10)
+    raise RuntimeError(
+        f"AKS Azure RBAC did not propagate within {timeout_seconds}s. "
+        "Verify the deployer has 'Azure Kubernetes Service RBAC Cluster Admin' on the cluster."
+    )
 
 
 def _ensure_istio_cni_chaining(config: Config):
