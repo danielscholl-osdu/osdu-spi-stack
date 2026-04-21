@@ -9,6 +9,32 @@ metadata:
     app.kubernetes.io/managed-by: osdu-spi-stack
 spec:
   version: 8.18.2
+  # AKS Automatic Deployment Safeguards enforces the
+  # uniqueServiceSelectors policy as Deny in user namespaces (platform,
+  # foundation are not in the policy's excludedNamespaces). ECK's
+  # default elasticsearch-es-http and elasticsearch-es-transport
+  # services would share the same selectors and be rejected. Mirror the
+  # sister Terraform repo's pattern
+  # (../osdu-spi-infra/main/software/spi-stack/modules/elastic/main.tf):
+  # override both services' selectors with a distinct discriminator
+  # label, and stamp both labels on the pod template so both services
+  # still match the same pods.
+  http:
+    service:
+      spec:
+        selector:
+          common.k8s.elastic.co/type: elasticsearch
+          elasticsearch.k8s.elastic.co/cluster-name: elasticsearch
+          elasticsearch.service/http: "true"
+    tls:
+      selfSignedCertificate: {}
+  transport:
+    service:
+      spec:
+        selector:
+          common.k8s.elastic.co/type: elasticsearch
+          elasticsearch.k8s.elastic.co/cluster-name: elasticsearch
+          elasticsearch.service/transport: "true"
   nodeSets:
     - name: default
       count: 3
@@ -16,6 +42,10 @@ spec:
         node.roles: ["master", "data", "ingest"]
         node.store.allow_mmap: false
       podTemplate:
+        metadata:
+          labels:
+            elasticsearch.service/http: "true"
+            elasticsearch.service/transport: "true"
         spec:
           tolerations:
             - effect: NoSchedule
