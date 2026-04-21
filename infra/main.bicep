@@ -9,12 +9,14 @@
 // partition, common and per-partition Storage, and the scoped RBAC
 // role assignments that bind the identity to the above.
 //
-// Not in scope of this template (handled imperatively by the CLI):
+// Not in scope of this template:
+//   - AKS Automatic cluster + managed Istio -- declared separately in
+//     infra/aks.bicep (deployed first; this template consumes its
+//     oidcIssuerUrl output for federated-credential wiring).
 //   - Resource Group creation (pre-created by `az group create`)
-//   - AKS Automatic cluster + managed Istio (Phase 5, still in Python)
 //   - Soft-deleted Key Vault recovery (CLI pre-check)
 //   - Key Vault secret VALUES (data-plane, written by CLI post-deploy)
-//   - kubectl / flux bootstrap (Python provider)
+//   - Istio CNI chaining + kubectl / flux bootstrap (Python provider)
 //
 // Naming contract: the CLI pre-derives every Azure resource name in
 // src/spi/config.py and src/spi/azure_infra.py and passes them as
@@ -26,19 +28,13 @@ targetScope = 'resourceGroup'
 // Parameters
 // ──────────────────────────────────────────────────────────
 
-// envName is passed by the CLI for readability of deployment history and
-// to be available when Phase 5 adds an AKS module that references it.
+// envName is passed by the CLI for readability of deployment history.
 @description('Environment suffix, e.g. "dev1". Empty string for base environment.')
 #disable-next-line no-unused-params
 param envName string = ''
 
 @description('Azure region for all resources.')
 param location string = 'eastus2'
-
-// clusterName is not referenced until Phase 5 adds the AKS module.
-@description('AKS cluster name (created imperatively by the CLI before this deploys).')
-#disable-next-line no-unused-params
-param clusterName string
 
 @description('User-assigned managed identity name.')
 param identityName string

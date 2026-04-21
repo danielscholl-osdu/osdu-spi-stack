@@ -15,10 +15,14 @@
 """Azure PaaS infrastructure provisioning.
 
 Hybrid model:
-  - Resource Group + AKS Automatic + managed Istio are imperative (az CLI).
-    AKS is kept imperative because AKS Automatic + managed-Istio has
-    operational sequencing (mesh enable, CNI chaining, ingress gateway,
-    safeguards relaxation) that Bicep does not cleanly model.
+  - Resource Group creation is imperative (``az group create``); Bicep
+    cannot create the RG it deploys into.
+  - AKS Automatic is declared in Bicep at ``infra/aks.bicep`` (AVM
+    ``container-service/managed-cluster``). Two post-deploy imperative
+    steps remain for gaps the AVM module does not cover:
+    ``az aks get-credentials`` (kubeconfig merge; not a resource) and
+    ``az aks mesh enable-istio-cni`` (AVM typed ``proxyRedirectionMechanism``
+    out of the IstioComponents schema).
   - Key Vault soft-delete recovery is imperative pre-check (ARM cannot
     branch on a list-deleted query).
   - Everything else (Managed Identity, federated credentials, Key Vault
@@ -37,9 +41,10 @@ The function ``provision_azure_infra(config, dry_run=False)`` returns the
 same shape of infra_outputs dict as before so downstream callers
 (_create_osdu_config, populate_keyvault_secrets,
 write_keyvault_bootstrap_secrets) are unchanged. When ``dry_run`` is True,
-only the Azure login check, resource group creation, and ``az deployment
-group what-if`` run; AKS and all post-deploy data-plane steps are skipped
-and an empty outputs dict is returned.
+the Azure login check, resource group creation, and ``az deployment
+group what-if`` against both ``aks.bicep`` and ``main.bicep`` run; all
+post-deploy data-plane steps are skipped and an empty outputs dict is
+returned.
 """
 
 import json
@@ -60,6 +65,7 @@ from .helpers import (
 # ─────────────────────────────────────────────────────────────
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 INFRA_MAIN_BICEP = _REPO_ROOT / "infra" / "main.bicep"
+INFRA_AKS_BICEP = _REPO_ROOT / "infra" / "aks.bicep"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -105,68 +111,42 @@ def create_resource_group(config: Config):
     display_result(f"Resource group {config.resource_group} ready")
 
 
-def _aks_exists(config: Config) -> bool:
-    result = run_command(
-        ["az", "aks", "show",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--output", "json"],
-        description=f"Check for existing cluster: {config.cluster_name}",
-        check=False,
-        display=False,
-    )
-    return result.returncode == 0
+def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any]:
+    """Create an AKS Automatic cluster + managed Istio via Bicep.
 
+    The cluster is declared in ``infra/aks.bicep`` using the AVM
+    ``container-service/managed-cluster`` module. Two imperative post-
+    deploy steps remain for gaps the AVM module does not cover:
+    kubeconfig merge (``az aks get-credentials``, not a resource) and
+    Istio CNI chaining (``proxyRedirectionMechanism`` is typed out of
+    the AVM IstioComponents schema).
 
-def create_aks_automatic(config: Config):
-    """Create an AKS Automatic cluster with managed Istio.
-
-    Kept imperative because the mesh bootstrap (enable, CNI chaining,
-    ingress gateway, safeguards relaxation) is operational sequencing
-    that ARM does not express cleanly.
+    Returns the flattened Bicep output dict (``clusterName``,
+    ``clusterResourceId``, ``oidcIssuerUrl``, ``clusterPrincipalId``).
+    Returns an empty dict when ``dry_run`` is True.
     """
-    if _aks_exists(config):
-        console.print(f"\n[warning]AKS cluster '{config.cluster_name}' already exists. Using it.[/warning]")
-    else:
-        console.print("\n[bold]Creating AKS Automatic cluster (this takes ~10 minutes)...[/bold]")
-        run_command(
-            ["az", "aks", "create",
-             "--resource-group", config.resource_group,
-             "--name", config.cluster_name,
-             "--location", config.location,
-             "--sku", "automatic",
-             "--enable-azure-service-mesh",
-             # AKS Automatic requires the DisableSSH feature on the initial
-             # system nodepool. Without --ssh-access disabled, az aks create
-             # returns BadRequest on the "Automatic" SKU.
-             "--ssh-access", "disabled",
-             "--output", "json"],
-            description=f"Create AKS Automatic: {config.cluster_name}",
-        )
-    display_result(f"AKS Automatic cluster {config.cluster_name} ready")
-
-    # --enable-azure-service-mesh on create leaves a background update
-    # in flight after az aks create returns. Wait for it to settle before
-    # the next cluster update, otherwise we hit OperationNotAllowed.
-    run_command(
-        ["az", "aks", "wait",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--updated", "--interval", "30"],
-        description="Wait for cluster to be ready",
-        display=False,
+    header = "Previewing" if dry_run else "Deploying"
+    console.print(f"\n[bold]{header} AKS Automatic cluster via Bicep...[/bold]")
+    console.print(
+        "  [info]Cluster is declared in infra/aks.bicep via the AVM "
+        "managed-cluster module.[/info]"
+    )
+    aks_outputs = run_bicep_deployment(
+        template_path=str(INFRA_AKS_BICEP),
+        parameters={
+            "clusterName": config.cluster_name,
+            "location": config.location,
+        },
+        resource_group=config.resource_group,
+        deployment_name=f"spi-aks-{config.env or 'base'}",
+        what_if=dry_run,
     )
 
-    # Relax Deployment Safeguards for the three namespaces we manage.
-    # The uniqueServiceSelectors constraint blocks ECK from creating its
-    # http + transport services (both select the same pods), and container
-    # probe/resource constraints collide with a few upstream charts. We
-    # drop enforcement to Warning and exclude platform/osdu/foundation so
-    # workloads can start while other namespaces keep full enforcement.
-    _configure_safeguards(config)
+    if dry_run:
+        display_result("AKS Bicep what-if preview complete")
+        return {}
 
-    # Enable Istio mesh and external ingress gateway (idempotent)
-    _ensure_istio_mesh(config)
+    display_result(f"AKS Automatic cluster {config.cluster_name} ready")
 
     console.print("\n[bold]Fetching cluster credentials...[/bold]")
     run_command(
@@ -177,9 +157,29 @@ def create_aks_automatic(config: Config):
         description="Merge kubeconfig",
     )
 
+    # AVM v0.13.0 types proxyRedirectionMechanism out of IstioComponents;
+    # enable CNI chaining imperatively. Idempotent. CNI chaining avoids
+    # the NET_ADMIN capability requirement that the default Istio sidecar
+    # init container needs.
+    _ensure_istio_cni_chaining(config)
+
+    # Relax Deployment Safeguards for the three namespaces we manage.
+    # On the Automatic SKU this is effectively a no-op (safeguards are
+    # enforced via a non-bypassable ValidatingAdmissionPolicy and
+    # cannot be relaxed), but the call is retained for behavior parity
+    # with the pre-migration path. Removing it is tracked in B3.
+    _configure_safeguards(config)
+
+    return aks_outputs
+
 
 def _configure_safeguards(config: Config):
-    """Set AKS Deployment Safeguards to Warning and exclude managed namespaces."""
+    """Attempt to relax AKS Deployment Safeguards for managed namespaces.
+
+    No-op on the Automatic SKU -- safeguards there are enforced via a
+    non-bypassable ValidatingAdmissionPolicy. Retained for parity with
+    the imperative path; slated for removal in migration stage B3.
+    """
     console.print("\n[bold]Configuring Deployment Safeguards...[/bold]")
     run_command(
         [
@@ -191,99 +191,34 @@ def _configure_safeguards(config: Config):
             "--output", "none",
         ],
         description="Safeguards: Warning + exclude platform,osdu,foundation",
+        check=False,
     )
-    display_result("Deployment Safeguards relaxed for managed namespaces")
+    display_result("Deployment Safeguards configured for managed namespaces")
 
 
-def _ensure_istio_mesh(config: Config):
-    """Ensure Istio service mesh and external ingress gateway are enabled."""
+def _ensure_istio_cni_chaining(config: Config):
+    """Enable Istio CNI chaining (not expressible in AVM managed-cluster v0.13.0)."""
     result = run_command(
         ["az", "aks", "show",
          "--resource-group", config.resource_group,
          "--name", config.cluster_name,
-         "--query", "serviceMeshProfile",
-         "--output", "json"],
-        description="Check Istio mesh status",
-        display=False,
-    )
-    mesh = json.loads(result.stdout or "{}")
-
-    if mesh.get("mode") != "Istio":
-        console.print("\n[bold]Enabling Istio service mesh...[/bold]")
-        run_command(
-            ["az", "aks", "mesh", "enable",
-             "--resource-group", config.resource_group,
-             "--name", config.cluster_name],
-            description="Enable Azure Service Mesh",
-        )
-        display_result("Istio service mesh enabled")
-    else:
-        display_result("Istio service mesh already enabled")
-
-    run_command(
-        ["az", "aks", "wait",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--updated", "--interval", "30"],
-        description="Wait for cluster to be ready",
-        display=False,
-    )
-
-    # Enable CNI chaining to avoid NET_ADMIN capability requirement
-    # (AKS Deployment Safeguards block istio-init with NET_ADMIN)
-    cni_mode = (
-        (mesh.get("istio") or {})
-        .get("components", {})
-        .get("proxyRedirectionMechanism", "")
-    )
-    if cni_mode != "CNIChaining":
-        console.print("\n[bold]Enabling Istio CNI chaining...[/bold]")
-        run_command(
-            ["az", "aks", "mesh", "enable-istio-cni",
-             "--resource-group", config.resource_group,
-             "--name", config.cluster_name],
-            description="Enable Istio CNI chaining",
-        )
-        run_command(
-            ["az", "aks", "wait",
-             "--resource-group", config.resource_group,
-             "--name", config.cluster_name,
-             "--updated", "--interval", "30"],
-            description="Wait for cluster to be ready",
-            display=False,
-        )
-        display_result("Istio CNI chaining enabled")
-    else:
-        display_result("Istio CNI chaining already enabled")
-
-    gateways = (mesh.get("istio") or {}).get("components", {}).get("ingressGateways") or []
-    has_external = any(g.get("enabled") and g.get("mode") == "External" for g in gateways)
-    if not has_external:
-        console.print("\n[bold]Enabling Istio external ingress gateway...[/bold]")
-        run_command(
-            ["az", "aks", "mesh", "enable-ingress-gateway",
-             "--resource-group", config.resource_group,
-             "--name", config.cluster_name,
-             "--ingress-gateway-type", "External"],
-            description="Enable external ingress gateway",
-        )
-        display_result("Istio external ingress gateway enabled")
-    else:
-        display_result("Istio external ingress gateway already enabled")
-
-
-def get_aks_oidc_issuer(config: Config) -> str:
-    """Get the OIDC issuer URL for the AKS cluster. Needed for federated credentials."""
-    result = run_command(
-        ["az", "aks", "show",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--query", "oidcIssuerProfile.issuerUrl",
+         "--query", "serviceMeshProfile.istio.components.proxyRedirectionMechanism",
          "--output", "tsv"],
-        description="Get AKS OIDC issuer URL",
+        description="Check Istio CNI chaining status",
         display=False,
     )
-    return result.stdout.strip()
+    if (result.stdout or "").strip() == "CNIChaining":
+        display_result("Istio CNI chaining already enabled")
+        return
+
+    console.print("\n[bold]Enabling Istio CNI chaining...[/bold]")
+    run_command(
+        ["az", "aks", "mesh", "enable-istio-cni",
+         "--resource-group", config.resource_group,
+         "--name", config.cluster_name],
+        description="Enable Istio CNI chaining",
+    )
+    display_result("Istio CNI chaining enabled")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -328,7 +263,6 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
     return {
         "envName": config.env,
         "location": config.location,
-        "clusterName": config.cluster_name,
         "identityName": config.identity_name,
         "keyVaultName": config.keyvault_name,
         "acrName": config.acr_name,
@@ -498,14 +432,13 @@ def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, An
       1. Verify Azure login; capture tenant/subscription IDs.
       2. Create resource group (imperative; required by ``az deployment
          group what-if`` too, so always runs).
-      3. Create AKS Automatic + mesh (skipped in dry-run).
+      3. Deploy AKS Automatic via ``infra/aks.bicep`` (what-if in dry-run;
+         returns ``oidcIssuerUrl`` for main.bicep).
       4. Recover soft-deleted Key Vault if present (skipped in dry-run).
-      5. Fetch AKS OIDC issuer URL (skipped in dry-run; empty string makes
-         ``identity.bicep`` omit federated credentials from the preview).
-      6. Deploy Bicep template (or run what-if preview if ``dry_run`` is
-         True).
-      7. Fetch Cosmos primary keys (skipped in dry-run).
-      8. Populate Key Vault secret values (skipped in dry-run).
+      5. Deploy the main Bicep template (or run what-if preview if
+         ``dry_run`` is True).
+      6. Fetch Cosmos primary keys (skipped in dry-run).
+      7. Populate Key Vault secret values (skipped in dry-run).
     """
     outputs: Dict[str, Any] = {}
 
@@ -524,16 +457,15 @@ def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, An
 
     create_resource_group(config)
 
-    if dry_run:
-        console.print(
-            "\n[warning]Dry-run: skipping AKS creation, Key Vault soft-delete "
-            "recovery, and OIDC issuer lookup.[/warning]"
-        )
-        oidc_issuer = ""
-    else:
-        create_aks_automatic(config)
+    # AKS Bicep deploy returns the OIDC issuer URL directly. In dry-run
+    # we run what-if on aks.bicep (returning an empty dict) and pass an
+    # empty issuer so identity.bicep omits federated credentials from
+    # the main.bicep preview.
+    aks_outputs = create_aks_automatic(config, dry_run=dry_run)
+    oidc_issuer = aks_outputs.get("oidcIssuerUrl", "")
+
+    if not dry_run:
         _recover_soft_deleted_keyvault(config)
-        oidc_issuer = get_aks_oidc_issuer(config)
 
     header = "Previewing" if dry_run else "Deploying"
     console.print(f"\n[bold]{header} Azure PaaS resources via Bicep...[/bold]")

@@ -21,7 +21,6 @@ param envName = 'dev1'
 param location = 'eastus2'
 
 // Names derived by Config.from_env('dev1') and the _*_name helpers in azure_infra.py
-param clusterName = 'spi-stack-dev1'
 param identityName = 'spi-stack-dev1-osdu-identity'
 param keyVaultName = 'osdudev1'
 param acrName = 'osdudev1'

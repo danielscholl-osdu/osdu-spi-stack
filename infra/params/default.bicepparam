@@ -10,9 +10,9 @@
 // envName is empty. They match what Config.from_env('') produces and are
 // valid Azure resource names.
 //
-// oidcIssuerUrl is empty here; leave it empty to run Bicep without the AKS
-// cluster present (federated credentials are skipped). A real deploy through
-// the CLI fills this in after `az aks show` returns the OIDC issuer URL.
+// oidcIssuerUrl is empty here; leave it empty to run main.bicep without the
+// AKS cluster present (federated credentials are skipped). A real deploy
+// through the CLI populates it from infra/aks.bicep's oidcIssuerUrl output.
 
 using '../main.bicep'
 
@@ -20,7 +20,6 @@ param envName = ''
 param location = 'eastus2'
 
 // Names derived by Config.from_env('') and the _*_name helpers in azure_infra.py
-param clusterName = 'spi-stack'
 param identityName = 'spi-stack-osdu-identity'
 param keyVaultName = 'osduspistack'
 param acrName = 'osduspistack'
