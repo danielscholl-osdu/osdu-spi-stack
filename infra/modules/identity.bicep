@@ -32,6 +32,13 @@ resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
   location: location
 }
 
+// ARM's Managed Identity RP rejects concurrent federated credential
+// writes against the same UAMI (ConcurrentFederatedIdentityCredentials-
+// WritesForSingleManagedIdentity). Bicep's default copy-loop schedules
+// iterations in parallel, so @batchSize(1) is required to serialize
+// the 8 credential creations; without it, all-but-one fail on a fresh
+// deploy. Adds ~1-2 minutes to first-run provisioning.
+@batchSize(1)
 resource federatedCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [for ns in federatedNamespaces: if (!empty(oidcIssuerUrl)) {
   parent: identity
   name: 'federated-ns-${ns}'
