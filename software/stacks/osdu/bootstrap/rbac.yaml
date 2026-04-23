@@ -1,0 +1,75 @@
+# ServiceAccount and RBAC for the CA-mirror Job.
+#
+# The Job reads two TLS CA secrets from the platform namespace (Redis via
+# cert-manager, Elasticsearch via ECK) and creates matching secrets in the
+# osdu namespace so the osdu-spi-service chart's init container can mount
+# them into the Java truststore.
+#
+# Scope is deliberately narrow: only the two named source secrets, only
+# the two named destination secrets. Nothing else in either namespace.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ca-mirror
+  namespace: osdu
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ca-mirror-read
+  namespace: platform
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - redis-tls-secret
+      - elasticsearch-es-http-certs-public
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ca-mirror-read
+  namespace: platform
+subjects:
+  - kind: ServiceAccount
+    name: ca-mirror
+    namespace: osdu
+roleRef:
+  kind: Role
+  name: ca-mirror-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ca-mirror-write
+  namespace: osdu
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - redis-ca-cert
+      - elastic-ca-cert
+    verbs: ["get", "create", "update", "patch"]
+  # An unnamed rule is required for initial creation, because
+  # resourceNames-scoped rules can't authorize create on a not-yet-existing
+  # object. Keep it to just "create" on secrets to stay narrow.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ca-mirror-write
+  namespace: osdu
+subjects:
+  - kind: ServiceAccount
+    name: ca-mirror
+    namespace: osdu
+roleRef:
+  kind: Role
+  name: ca-mirror-write
+  apiGroup: rbac.authorization.k8s.io

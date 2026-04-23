@@ -9,14 +9,23 @@
 // partition, common and per-partition Storage, and the scoped RBAC
 // role assignments that bind the identity to the above.
 //
+// Key Vault secret VALUES are also declared here: static metadata plus
+// ``listKeys()`` on Cosmos accounts is resolved at deploy time, so the CLI
+// no longer has to run ``az cosmosdb keys list`` + ``az keyvault secret set``
+// post-deploy.
+//
 // Not in scope of this template:
 //   - AKS Automatic cluster + managed Istio -- declared separately in
 //     infra/aks.bicep (deployed first; this template consumes its
 //     oidcIssuerUrl output for federated-credential wiring).
 //   - Resource Group creation (pre-created by `az group create`)
 //   - Soft-deleted Key Vault recovery (CLI pre-check)
-//   - Key Vault secret VALUES (data-plane, written by CLI post-deploy)
-//   - Istio CNI chaining + kubectl / flux bootstrap (Python provider)
+//   - Flux extension + GitOps config -- infra/flux.bicep, deployed after
+//     the K8s bootstrap phase.
+//   - Runtime-only secrets that depend on in-cluster seed passwords
+//     (tbl-storage-endpoint, redis-*, {partition}-elastic-*) -- written
+//     by the CLI in the post-handoff bootstrap.
+//   - Istio CNI chaining + kubectl bootstrap (Python provider).
 //
 // Naming contract: the CLI pre-derives every Azure resource name in
 // src/spi/config.py and src/spi/azure_infra.py and passes them as
@@ -105,7 +114,11 @@ module gremlinModule 'modules/cosmos-gremlin.bicep' = {
   params: {
     name: gremlinAccountName
     location: location
+    keyVaultName: keyVaultName
   }
+  dependsOn: [
+    keyvaultModule
+  ]
 }
 
 module storageCommonModule 'modules/storage-common.bicep' = {
@@ -129,7 +142,11 @@ module partitionModules 'modules/partition.bicep' = [for (p, i) in dataPartition
     serviceBusName: serviceBusNames[i]
     storageAccountName: partitionStorageNames[i]
     isPrimaryPartition: p == primaryPartition
+    keyVaultName: keyVaultName
   }
+  dependsOn: [
+    keyvaultModule
+  ]
 }]
 
 // ──────────────────────────────────────────────────────────
@@ -155,15 +172,148 @@ module rbacModule 'modules/rbac.bicep' = {
 }
 
 // ──────────────────────────────────────────────────────────
+// Key Vault secret values (declarative; replaces post-deploy CLI writes)
+// ──────────────────────────────────────────────────────────
+//
+// ``existing`` references let us call ``listKeys()`` on Cosmos accounts
+// provisioned inside sub-modules and write the result directly as a KV
+// secret. Splitting the declarations by "pattern" (static vs per-partition
+// cosmos/storage/sb) keeps Bicep's array-loop semantics simple and makes
+// the deployment history self-describing without a ``flatten()`` dance.
+//
+// All secret values stay out of the deployment outputs -- they are set
+// only on the child resource and never surface in the deployment record.
+
+// Cosmos primary-key secrets (graph-db-primary-key and
+// {partition}-cosmos-primary-key) are written INSIDE the gremlinModule
+// and partitionModules respectively. ``listKeys()`` on an ``existing``
+// reference at this scope fails with ResourceNotFound because Bicep's
+// dependency analyzer does not chain through the module that creates
+// the account.
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+// Static/metadata secrets are declared individually because Bicep's for-
+// expression cannot iterate over an array that references module outputs
+// (BCP178: iterable must be resolvable at deployment start). Per-partition
+// loops below iterate over ``dataPartitions`` (a parameter) which is fine.
+
+resource secretTenantId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'tenant-id'
+  parent: keyVault
+  properties: { value: tenant().tenantId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretSubscriptionId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'subscription-id'
+  parent: keyVault
+  properties: { value: subscription().subscriptionId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretIdentityId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'osdu-identity-id'
+  parent: keyVault
+  properties: { value: identityModule.outputs.clientId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretKeyvaultUri 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'keyvault-uri'
+  parent: keyVault
+  properties: { value: keyvaultModule.outputs.uri }
+}
+
+resource secretSystemStorage 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'system-storage'
+  parent: keyVault
+  properties: { value: commonStorageName }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretAppDevSpUsername 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'app-dev-sp-username'
+  parent: keyVault
+  properties: { value: identityModule.outputs.clientId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretAppDevSpPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'app-dev-sp-password'
+  parent: keyVault
+  properties: { value: 'DISABLED' }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretAppDevSpTenantId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'app-dev-sp-tenant-id'
+  parent: keyVault
+  properties: { value: tenant().tenantId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretAppDevSpId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'app-dev-sp-id'
+  parent: keyVault
+  properties: { value: identityModule.outputs.clientId }
+  dependsOn: [ keyvaultModule ]
+}
+
+resource secretGraphEndpoint 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'graph-db-endpoint'
+  parent: keyVault
+  properties: { value: gremlinModule.outputs.documentEndpoint }
+  dependsOn: [ keyvaultModule ]
+}
+
+// graph-db-primary-key is written inside gremlinModule; see note above.
+
+resource partitionStorageSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for (p, i) in dataPartitions: {
+  name: '${p}-storage'
+  parent: keyVault
+  properties: {
+    value: partitionStorageNames[i]
+  }
+  dependsOn: [
+    keyvaultModule
+  ]
+}]
+
+resource partitionCosmosEndpointSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for (p, i) in dataPartitions: {
+  name: '${p}-cosmos-endpoint'
+  parent: keyVault
+  properties: {
+    value: partitionModules[i].outputs.cosmosEndpoint
+  }
+  dependsOn: [
+    keyvaultModule
+  ]
+}]
+
+// {partition}-cosmos-primary-key is written inside each partitionModule.
+
+resource partitionServiceBusSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for (p, i) in dataPartitions: {
+  name: '${p}-sb-namespace'
+  parent: keyVault
+  properties: {
+    value: serviceBusNames[i]
+  }
+  dependsOn: [
+    keyvaultModule
+  ]
+}]
+
+// ──────────────────────────────────────────────────────────
 // Outputs
 // ──────────────────────────────────────────────────────────
 //
 // Outputs are in camelCase and flat; the CLI reshapes them into the
-// legacy snake_case infra_outputs dict consumed by _create_osdu_config,
-// populate_keyvault_secrets, and workload-identity ServiceAccount
-// creation. Secrets (Cosmos primary keys) are NOT emitted as outputs
-// so they stay out of deployment history; the CLI fetches them via
-// `az cosmosdb keys list` after the deployment completes.
+// legacy snake_case infra_outputs dict consumed by _create_osdu_config
+// and workload-identity ServiceAccount creation. Secret values are
+// NEVER emitted as outputs; they stay inside the KV secret resources.
 
 output tenantId string = tenant().tenantId
 output subscriptionId string = subscription().subscriptionId

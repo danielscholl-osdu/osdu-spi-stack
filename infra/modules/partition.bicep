@@ -25,6 +25,9 @@ param storageAccountName string
 @description('True only for the primary partition; hosts osdu-system-db.')
 param isPrimaryPartition bool = false
 
+@description('Key Vault name that receives the Cosmos primary key. Empty string skips the secret write.')
+param keyVaultName string = ''
+
 // ──────────────────────────────────────────────────────────
 // Data definitions (ported from azure_infra.py)
 // ──────────────────────────────────────────────────────────
@@ -241,7 +244,8 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     accessTier: 'Hot'
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
-    allowSharedKeyAccess: true
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
     supportsHttpsTrafficOnly: true
   }
 }
@@ -255,6 +259,27 @@ resource storageContainerResources 'Microsoft.Storage/storageAccounts/blobServic
   parent: blobService
   name: containerName
 }]
+
+// ──────────────────────────────────────────────────────────
+// Key Vault secret (same-module listKeys() for natural dependency)
+// ──────────────────────────────────────────────────────────
+//
+// Written inside this module so ``listKeys()`` has an implicit dependency
+// on the ``cosmosAccount`` resource above. An ``existing`` reference at
+// the parent scope does NOT carry a dependency on the creating module,
+// so attempting ``listKeys()`` there fails with ResourceNotFound.
+
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = if (!empty(keyVaultName)) {
+  name: keyVaultName
+}
+
+resource cosmosPrimaryKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
+  name: '${partition}-cosmos-primary-key'
+  parent: keyVault
+  properties: {
+    value: cosmosAccount.listKeys().primaryMasterKey
+  }
+}
 
 // ──────────────────────────────────────────────────────────
 // Outputs

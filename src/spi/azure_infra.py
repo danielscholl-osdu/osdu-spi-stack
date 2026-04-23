@@ -26,25 +26,21 @@ Hybrid model:
   - Key Vault soft-delete recovery is imperative pre-check (ARM cannot
     branch on a list-deleted query).
   - Everything else (Managed Identity, federated credentials, Key Vault
-    creation, ACR, CosmosDB Gremlin + SQL, Service Bus + topics/subs,
-    Storage + containers/tables, RBAC role assignments) is declared in
-    Bicep at ``infra/main.bicep`` and deployed with
-    ``az deployment group create``.
-  - Cosmos DB primary keys are fetched after the deploy via
-    ``az cosmosdb keys list`` (they are secure; not exposed as Bicep
-    outputs).
-  - Key Vault secret VALUES are written by the CLI post-deploy, since
-    they derive from Bicep output values plus the Python-managed
-    in-cluster seed passwords.
+    creation + metadata secrets + Cosmos primary keys via ``listKeys()``,
+    ACR, CosmosDB Gremlin + SQL, Service Bus + topics/subs, Storage +
+    containers/tables, RBAC role assignments) is declared in Bicep at
+    ``infra/main.bicep`` and deployed with ``az deployment group create``.
+  - Runtime-only Key Vault secrets that depend on in-cluster seed
+    passwords (tbl-storage-endpoint, redis-*, {partition}-elastic-*)
+    are still written by the CLI from ``runtime_bootstrap.py`` after
+    Flux has reconciled the middleware layer.
 
 The function ``provision_azure_infra(config, dry_run=False)`` returns the
-same shape of infra_outputs dict as before so downstream callers
-(_create_osdu_config, populate_keyvault_secrets,
-write_keyvault_bootstrap_secrets) are unchanged. When ``dry_run`` is True,
-the Azure login check, resource group creation, and ``az deployment
-group what-if`` against both ``aks.bicep`` and ``main.bicep`` run; all
-post-deploy data-plane steps are skipped and an empty outputs dict is
-returned.
+infra_outputs dict consumed by ``_create_osdu_config`` and workload-
+identity ServiceAccount creation. When ``dry_run`` is True, the Azure
+login check, resource group creation, and ``az deployment group what-if``
+against both ``aks.bicep`` and ``main.bicep`` run; all post-deploy steps
+are skipped and an empty outputs dict is returned.
 """
 
 import json
@@ -382,97 +378,6 @@ def _reshape_bicep_outputs(bicep_outputs: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _fetch_cosmos_keys(config: Config, outputs: Dict[str, Any]):
-    """Fetch CosmosDB primary keys after the Bicep deploy.
-
-    The keys are secure and not exposed as Bicep outputs. They are read
-    here and merged into ``outputs`` so ``populate_keyvault_secrets`` can
-    store them in Key Vault.
-    """
-    console.print("\n[bold]Fetching CosmosDB keys...[/bold]")
-
-    gremlin_result = run_command(
-        ["az", "cosmosdb", "keys", "list",
-         "--name", _cosmos_gremlin_name(config.env),
-         "--resource-group", config.resource_group,
-         "--output", "json"],
-        description=f"Get Gremlin keys: {_cosmos_gremlin_name(config.env)}",
-        display=False,
-    )
-    gk = json.loads(gremlin_result.stdout)
-    outputs["graph_primary_key"] = gk.get("primaryMasterKey", "")
-
-    for partition in config.data_partitions:
-        sql_result = run_command(
-            ["az", "cosmosdb", "keys", "list",
-             "--name", _cosmos_sql_name(partition, config.env),
-             "--resource-group", config.resource_group,
-             "--output", "json"],
-            description=f"Get CosmosDB keys: {_cosmos_sql_name(partition, config.env)}",
-            display=False,
-        )
-        sk = json.loads(sql_result.stdout)
-        outputs[f"{partition}_cosmos_primary_key"] = sk.get("primaryMasterKey", "")
-
-    display_result(f"CosmosDB keys fetched for {len(config.data_partitions) + 1} accounts")
-
-
-# ─────────────────────────────────────────────────────────────
-# Key Vault secret values (data-plane; post-Bicep)
-# ─────────────────────────────────────────────────────────────
-
-def populate_keyvault_secrets(config: Config, infra_outputs: Dict[str, Any]):
-    """Store Azure PaaS connection info in Key Vault.
-
-    Writes secret VALUES (data-plane operation). The Key Vault itself
-    and the identity's Secrets User role assignment come from Bicep.
-    """
-    console.print("\n[bold]Populating Key Vault secrets...[/bold]")
-
-    secrets: Dict[str, str] = {
-        "tenant-id": infra_outputs.get("tenant_id", ""),
-        "subscription-id": infra_outputs.get("subscription_id", ""),
-        "osdu-identity-id": infra_outputs.get("identity_client_id", ""),
-        "keyvault-uri": infra_outputs.get("keyvault_uri", ""),
-        "system-storage": infra_outputs.get("common_storage_name", ""),
-        "app-dev-sp-username": infra_outputs.get("identity_client_id", ""),
-        "app-dev-sp-password": "DISABLED",
-        "app-dev-sp-tenant-id": infra_outputs.get("tenant_id", ""),
-        "app-dev-sp-id": infra_outputs.get("identity_client_id", ""),
-    }
-
-    if "graph_endpoint" in infra_outputs:
-        secrets["graph-db-endpoint"] = infra_outputs["graph_endpoint"]
-    if "graph_primary_key" in infra_outputs:
-        secrets["graph-db-primary-key"] = infra_outputs["graph_primary_key"]
-
-    for partition in config.data_partitions:
-        prefix = partition
-        if f"{partition}_storage_name" in infra_outputs:
-            secrets[f"{prefix}-storage"] = infra_outputs[f"{partition}_storage_name"]
-        if f"{partition}_cosmos_endpoint" in infra_outputs:
-            secrets[f"{prefix}-cosmos-endpoint"] = infra_outputs[f"{partition}_cosmos_endpoint"]
-        if f"{partition}_cosmos_primary_key" in infra_outputs:
-            secrets[f"{prefix}-cosmos-primary-key"] = infra_outputs[f"{partition}_cosmos_primary_key"]
-        if f"{partition}_sb_namespace" in infra_outputs:
-            secrets[f"{prefix}-sb-namespace"] = infra_outputs[f"{partition}_sb_namespace"]
-
-    active_secrets = {k: v for k, v in secrets.items() if v}
-    for name, value in active_secrets.items():
-        run_command(
-            ["az", "keyvault", "secret", "set",
-             "--vault-name", config.keyvault_name,
-             "--name", name,
-             "--value", value,
-             "--output", "none"],
-            description=f"Set secret: {name}",
-            display=False,
-            check=False,
-        )
-
-    display_result(f"Key Vault secrets populated ({len(active_secrets)} secrets)")
-
-
 # ─────────────────────────────────────────────────────────────
 # Orchestrator
 # ─────────────────────────────────────────────────────────────
@@ -488,9 +393,9 @@ def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, An
          returns ``oidcIssuerUrl`` for main.bicep).
       4. Recover soft-deleted Key Vault if present (skipped in dry-run).
       5. Deploy the main Bicep template (or run what-if preview if
-         ``dry_run`` is True).
-      6. Fetch Cosmos primary keys (skipped in dry-run).
-      7. Populate Key Vault secret values (skipped in dry-run).
+         ``dry_run`` is True). This deploys all PaaS resources AND
+         populates Key Vault metadata secrets (tenant-id, endpoints,
+         Cosmos primary keys via ``listKeys()``) declaratively.
     """
     outputs: Dict[str, Any] = {}
 
@@ -540,8 +445,5 @@ def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, An
 
     outputs.update(_reshape_bicep_outputs(bicep_outputs))
     display_result("Bicep deployment complete")
-
-    _fetch_cosmos_keys(config, outputs)
-    populate_keyvault_secrets(config, outputs)
 
     return outputs

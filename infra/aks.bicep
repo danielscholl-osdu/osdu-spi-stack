@@ -38,14 +38,80 @@ param kubernetesVersion string = '1.34'
 param systemPoolVmSize string = 'Standard_D4lds_v5'
 
 // ──────────────────────────────────────────────
+// Private network (BYO VNet)
+// ──────────────────────────────────────────────
+//
+// AKS Automatic's managed-VNet path is blocked on Microsoft corporate
+// tenants by the "Subnets should be private" Azure Policy, which
+// requires ``defaultOutboundAccess: false`` on every subnet. The
+// managed VNet does not set that flag, so we pre-create a VNet and
+// subnet here and pass the subnet ID into the cluster.
+
+module vnetModule 'modules/vnet.bicep' = {
+  name: 'spi-aks-vnet'
+  params: {
+    vnetName: '${clusterName}-vnet'
+    natGatewayName: '${clusterName}-natgw'
+    publicIpName: '${clusterName}-natgw-pip'
+    location: location
+  }
+}
+
+// ──────────────────────────────────────────────
+// Cluster control-plane identity (UAMI)
+// ──────────────────────────────────────────────
+//
+// AKS Automatic + BYO VNet rejects SAMI with
+// ``OnlySupportedOnUserAssignedMSICluster``. This is a DIFFERENT
+// identity from the OSDU workload identity in infra/main.bicep; this
+// one is consumed only by the cluster control plane to reconcile
+// network resources in the pre-existing VNet.
+//
+// The UAMI needs ``Network Contributor`` on the VNet so the cluster
+// can attach NICs, manage the NAT gateway association, and reconcile
+// the API server subnet delegation. We scope to the VNet rather than
+// each subnet individually: AKS Automatic uses a node subnet AND a
+// delegated API server subnet (VNet integration), and VNet-level
+// scoping keeps the assignment set minimal.
+
+var clusterIdentityName = '${clusterName}-ctl-id'
+var networkContributorRoleId = '4d97b98b-1d4f-4787-a291-c67834d212e7'
+
+resource clusterIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: clusterIdentityName
+  location: location
+}
+
+resource aksVnet 'Microsoft.Network/virtualNetworks@2024-01-01' existing = {
+  name: '${clusterName}-vnet'
+}
+
+resource clusterIdentityNetworkContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: aksVnet
+  name: guid(aksVnet.id, clusterIdentity.id, networkContributorRoleId)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', networkContributorRoleId)
+    principalId: clusterIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+  dependsOn: [
+    vnetModule
+  ]
+}
+
+// ──────────────────────────────────────────────
 // AKS Automatic cluster via AVM
 // ──────────────────────────────────────────────
 //
 // Automatic SKU validation requires:
-//   - OutboundType = managedNATGateway
-//   - SAMI (system-assigned managed identity) when using managed vnet
+//   - UAMI (user-assigned managed identity) when using BYO VNet.
+//     Managed-VNet Automatic clusters require SAMI; BYO-VNet requires
+//     UAMI; these are mutually exclusive.
 //   - Ephemeral OS disks on the system pool
 //   - webApplicationRouting and KeyvaultSecretsProvider addons enabled
+//
+// With BYO VNet, outboundType switches from managedNATGateway to
+// userAssignedNATGateway (the NAT we pre-created in vnet.bicep).
 
 module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' = {
   name: 'spi-aks-automatic'
@@ -62,14 +128,28 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
     // wire federated credentials to the workload-identity SAs.
     enableOidcIssuerProfile: true
 
-    // SAMI on the cluster. Workload identity for pods is a separate
-    // user-assigned identity created in infra/main.bicep.
+    // UAMI on the cluster (required for BYO VNet; see block above).
+    // Workload identity for pods is a separate UAMI in infra/main.bicep.
     managedIdentities: {
-      systemAssigned: true
+      userAssignedResourceIds: [
+        clusterIdentity.id
+      ]
     }
 
-    // Automatic SKU recommendations.
-    outboundType: 'managedNATGateway'
+    // BYO VNet: outbound goes through the user-assigned NAT Gateway
+    // attached to the subnet in vnet.bicep.
+    outboundType: 'userAssignedNATGateway'
+    networkPlugin: 'azure'
+    serviceCidr: '192.168.0.0/16'
+    dnsServiceIP: '192.168.0.10'
+
+    // API server VNet integration is always-on for AKS Automatic with
+    // BYO VNet and requires a dedicated delegated subnet distinct from
+    // the node subnet (see vnet.bicep).
+    apiServerAccessProfile: {
+      subnetId: vnetModule.outputs.apiServerSubnetId
+    }
+
     enableKeyvaultSecretsProvider: true
     enableSecretRotation: true
     webApplicationRoutingEnabled: true
@@ -101,6 +181,7 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
           2
           3
         ]
+        vnetSubnetResourceId: vnetModule.outputs.subnetId
       }
     ]
 
@@ -137,4 +218,4 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
 output clusterName string = clusterName
 output clusterResourceId string = aksCluster.outputs.resourceId
 output oidcIssuerUrl string = aksCluster.outputs.?oidcIssuerUrl ?? ''
-output clusterPrincipalId string = aksCluster.outputs.?systemAssignedMIPrincipalId ?? ''
+output clusterPrincipalId string = clusterIdentity.properties.principalId
