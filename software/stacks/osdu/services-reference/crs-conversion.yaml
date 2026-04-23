@@ -71,11 +71,11 @@ spec:
             mountPath: /data
         resources:
           requests:
-            cpu: 50m
-            memory: 128Mi
+            cpu: 100m
+            memory: 256Mi
           limits:
-            cpu: 200m
-            memory: 384Mi
+            cpu: 500m
+            memory: 1Gi
         securityContext:
           runAsUser: 0
           runAsNonRoot: false
