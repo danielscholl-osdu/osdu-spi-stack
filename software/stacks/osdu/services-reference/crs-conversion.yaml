@@ -74,7 +74,7 @@ spec:
             set -e
             tdnf install -y curl tar gzip ca-certificates
             mkdir -p /data/sis-data
-            curl -fsSL -o /tmp/sis.tar.gz "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.tar.gz?path=appsettings/SISData"
+            curl -fsSL -o /tmp/sis.tar.gz "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.tar.gz?path=apachesis_setup/SIS_DATA"
             tar xzf /tmp/sis.tar.gz -C /data/sis-data --strip-components=3
         volumeMounts:
           - name: sis-data
