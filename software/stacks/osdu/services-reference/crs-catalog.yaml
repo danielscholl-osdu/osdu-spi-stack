@@ -33,12 +33,12 @@ spec:
         effect: NoSchedule
     probes:
       liveness:
-        path: /api/crs/catalog/actuator/health
-        port: 8080
+        path: /actuator/health
+        port: 8081
         initialDelaySeconds: 250
       readiness:
-        path: /api/crs/catalog/actuator/health
-        port: 8080
+        path: /actuator/health
+        port: 8081
         initialDelaySeconds: 10
     env:
       - name: SPRING_APPLICATION_NAME
