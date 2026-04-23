@@ -14,9 +14,15 @@ spec:
         kind: HelmRepository
         name: jetstack
         namespace: flux-system
+  # Upstream default-install fails AKS Safeguards because trust-manager's
+  # defaultPackage init container is emitted without resource requests.
+  # We don't use the default-CAs feature (our Bundles source from Secrets),
+  # so disable it to remove the offending init container entirely.
   values:
     crds:
       enabled: true
+    defaultPackage:
+      enabled: false
     # Trust namespace = where source Secrets/ConfigMaps are read from.
     # Our source CAs live in platform (Redis via cert-manager, Elasticsearch
     # via ECK), so trust-manager watches that namespace for sources.
