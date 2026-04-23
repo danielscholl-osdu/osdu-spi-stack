@@ -21,4 +21,4 @@ metadata:
   name: osdu
   labels:
     app.kubernetes.io/managed-by: osdu-spi-stack
-    istio.io/rev: asm-1-27
+    istio.io/rev: asm-1-28

@@ -316,7 +316,7 @@ def _detect_istio_revision() -> str:
          "-o", "jsonpath={.items[0].metadata.labels.istio\\.io/rev}"],
         capture_output=True, text=True,
     )
-    return result.stdout.strip() or "asm-1-27"
+    return result.stdout.strip() or "asm-1-28"
 
 
 def ensure_namespaces(istio_revision: str = ""):
