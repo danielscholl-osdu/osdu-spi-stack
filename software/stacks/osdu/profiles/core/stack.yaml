@@ -9,6 +9,7 @@
 # Layer 4a: OSDU configuration (ConfigMap created by CLI)
 # Layer 4b: Bootstrap (trust-manager Bundles for CA distribution + Redis Istio DR)
 # Layer 5: Core OSDU services (10 services) -- on osdu nodes
+# Layer 5b: OSDU schema loader (post-services one-shot Job) -- ADR-013
 # Layer 6: Reference services (unit, crs-conversion, crs-catalog) -- on osdu nodes
 
 ---
@@ -287,6 +288,36 @@ spec:
   timeout: 30m
 
 ---
+# Layer 5b: OSDU schema loader (one-shot Job, see ADR-013)
+# Runs the community schema-service-schema-load image to POST the ~1,386
+# shared OSDU schemas into the primary partition. The Kustomization's
+# healthCheck on the Job's Complete condition means spi-osdu-reference
+# observes a schema-loaded cluster.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-schema-load
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-osdu-services
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/schema-load
+  prune: true
+  wait: true
+  # Matches the Job's activeDeadlineSeconds (1800s) plus headroom for
+  # image pull and reconcile overhead.
+  timeout: 35m
+  healthChecks:
+    - apiVersion: batch/v1
+      kind: Job
+      name: schema-load
+      namespace: osdu
+
+---
 # Layer 6: Reference services
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -297,6 +328,7 @@ spec:
   interval: 10m
   dependsOn:
     - name: spi-osdu-services
+    - name: spi-osdu-schema-load
   sourceRef:
     kind: GitRepository
     name: osdu-spi-stack-system

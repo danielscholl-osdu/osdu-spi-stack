@@ -1,0 +1,89 @@
+# One-shot Job that loads the OSDU shared schemas into the primary
+# partition. Runs after the core OSDU services HelmReleases have been
+# applied (see spi-osdu-schema-load Flux Kustomization in
+# software/stacks/osdu/profiles/core/stack.yaml).
+#
+# Uses the existing `workload-identity-sa` in the `osdu` namespace,
+# already federated to the OSDU UAMI (see infra/modules/identity.bicep).
+# The AKS Workload Identity webhook injects AZURE_CLIENT_ID,
+# AZURE_TENANT_ID, and AZURE_FEDERATED_TOKEN_FILE automatically when
+# the pod carries the `azure.workload.identity/use: "true"` label and
+# the SA has the matching annotations.
+#
+# The loader image's default entrypoint runs `bootstrap.sh` from
+# /home/osdu/deployments/scripts/azure; we mount our wrapper over that
+# path (and Token.py alongside it) rather than overriding `command`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: schema-load
+  namespace: osdu
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+    app.kubernetes.io/component: schema-load
+spec:
+  backoffLimit: 2
+  # 30 min ceiling covers the worst-case startup: ~20 min precheck wait
+  # on a fresh cluster while the schema pod is still pulling, plus a few
+  # minutes for the ~1,386 schema POSTs and token exchange.
+  activeDeadlineSeconds: 1800
+  # No ttlSecondsAfterFinished: this is a one-shot loader. Flux
+  # reconciles this Kustomization every 10 min; a TTL would let the
+  # controller delete the completed Job and the next reconcile would
+  # re-apply it, turning a one-shot into a periodic re-run. Operators
+  # trigger re-runs manually (kubectl delete job schema-load -n osdu).
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: osdu-spi-stack
+        app.kubernetes.io/component: schema-load
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: workload-identity-sa
+      restartPolicy: Never
+      nodeSelector:
+        agentpool: osdu
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: "osdu"
+          effect: NoSchedule
+      volumes:
+        - name: scripts
+          configMap:
+            name: schema-load-scripts
+            defaultMode: 0755
+      containers:
+        - name: loader
+          image: community.opengroup.org:5555/osdu/platform/system/schema-service/schema-service-schema-load-master:868023373a2f7550d9f3e850d06434838eeeb2b4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: osdu-config
+          env:
+            - name: NAMESPACE
+              value: "osdu"
+          volumeMounts:
+            - name: scripts
+              mountPath: /home/osdu/deployments/scripts/azure/bootstrap.sh
+              subPath: bootstrap.sh
+            - name: scripts
+              mountPath: /home/osdu/deployments/scripts/azure/Token.py
+              subPath: Token.py
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /proc/1/status"]
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /proc/1/status"]
+            periodSeconds: 30
+            failureThreshold: 3

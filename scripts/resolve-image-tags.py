@@ -35,6 +35,7 @@ IMAGE_REGISTRY = {
     "entitlements":   {"project_id": 400, "image": "entitlements",         "file": "services/entitlements.yaml"},
     "legal":          {"project_id": 74,  "image": "legal",               "file": "services/legal.yaml"},
     "schema":         {"project_id": 26,  "image": "schema-service",      "file": "services/schema.yaml"},
+    "schema-load":    {"project_id": 26,  "image": "schema-service-schema-load", "file": "schema-load/job.yaml"},
     "storage":        {"project_id": 44,  "image": "storage",             "file": "services/storage.yaml"},
     "search":         {"project_id": 19,  "image": "search-service",      "file": "services/search.yaml"},
     "indexer":        {"project_id": 25,  "image": "indexer-service",     "file": "services/indexer.yaml"},
@@ -61,8 +62,24 @@ def resolve_image(svc_name: str, entry: dict, branch: str) -> dict | None:
     image_name = f"{entry['image']}-{svc_branch}"
     project_id = entry["project_id"]
 
-    # List registry repositories for this project
-    repos = gitlab_get(f"{GITLAB_HOST}/api/v4/projects/{project_id}/registry/repositories")
+    # List registry repositories for this project. The schema-service project
+    # alone has 160+ repos (per-release service + loader + helm charts), well
+    # past GitLab's default page size of 20. Pass per_page=100 and paginate to
+    # cover the full set; also filter by image_name as a substring to reduce
+    # the result window.
+    repos: list = []
+    page = 1
+    while True:
+        chunk = gitlab_get(
+            f"{GITLAB_HOST}/api/v4/projects/{project_id}/registry/repositories"
+            f"?per_page=100&page={page}&search={image_name}"
+        )
+        if not chunk:
+            break
+        repos.extend(chunk)
+        if len(chunk) < 100:
+            break
+        page += 1
 
     # Find the repository matching our image name
     repo = next((r for r in repos if r["name"] == image_name), None)
@@ -83,22 +100,44 @@ def resolve_image(svc_name: str, entry: dict, branch: str) -> dict | None:
 
 
 def update_yaml_file(filepath: Path, repository: str, tag: str) -> bool:
-    """Update image repository and tag in a HelmRelease YAML file."""
+    """Update the image reference in a YAML file.
+
+    Handles two formats:
+      1. HelmRelease values split across two lines:
+             repository: foo/bar
+             tag: "sha"
+         (used by software/stacks/osdu/services/*.yaml)
+      2. Kubernetes core Pod spec combined form:
+             image: "foo/bar:sha"
+         (used by the schema-load Job at software/stacks/osdu/schema-load/job.yaml)
+    """
     content = filepath.read_text()
 
-    # Update repository line
+    # Format 1: split repository: / tag:
     new_content = re.sub(
         r"(repository:\s*).+",
         rf"\g<1>{repository}",
         content,
         count=1,
     )
-    # Update tag line
     new_content = re.sub(
         r'(tag:\s*)"[^"]+"',
         rf'\g<1>"{tag}"',
         new_content,
         count=1,
+    )
+
+    # Format 2: combined image: "repo:tag" (with or without surrounding quotes).
+    # Only rewrite lines where the existing value already references the
+    # same repository we are updating, so this does not accidentally touch
+    # unrelated image fields (istio-proxy, init containers, etc).
+    repo_escaped = re.escape(repository)
+    new_content = re.sub(
+        rf'(^\s*image:\s*)(["\']?){repo_escaped}:[^\s"\']+(["\']?)(\s*)$',
+        rf"\g<1>\g<2>{repository}:{tag}\g<3>\g<4>",
+        new_content,
+        count=1,
+        flags=re.MULTILINE,
     )
 
     if new_content != content:

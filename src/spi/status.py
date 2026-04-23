@@ -46,6 +46,7 @@ _KUSTOMIZATION_ORDER = [
     "spi-airflow",
     "spi-osdu-config",
     "spi-osdu-services",
+    "spi-osdu-schema-load",
     "spi-osdu-reference",
 ]
 _KUSTOMIZATION_RANK = {name: i for i, name in enumerate(_KUSTOMIZATION_ORDER)}
