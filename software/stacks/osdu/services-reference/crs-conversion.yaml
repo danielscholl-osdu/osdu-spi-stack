@@ -31,13 +31,6 @@ spec:
         operator: Equal
         value: "osdu"
         effect: NoSchedule
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: "2"
-        memory: 2Gi
     probes:
       liveness:
         path: /actuator/health
