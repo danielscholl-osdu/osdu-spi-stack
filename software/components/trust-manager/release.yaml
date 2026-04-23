@@ -23,6 +23,12 @@ spec:
     app:
       trust:
         namespace: platform
+      # seccompProfile: RuntimeDefault (satisfies AKS Safeguards).
+      # Pod/container securityContext are baked into the chart templates
+      # with Safeguards-compliant defaults (runAsNonRoot, readOnlyRootFS,
+      # all caps dropped, allowPrivilegeEscalation=false).
+      securityContext:
+        seccompProfileEnabled: true
     # Allow Bundle targets to write Secret (not just ConfigMap) outputs,
     # scoped to just the two names the osdu services need.
     secretTargets:
@@ -30,16 +36,6 @@ spec:
       authorizedSecrets:
         - redis-ca-cert
         - elastic-ca-cert
-    # AKS Automatic Safeguards compliance
-    securityContext:
-      runAsNonRoot: true
-      seccompProfile:
-        type: RuntimeDefault
-    containerSecurityContext:
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-          - ALL
     resources:
       requests:
         cpu: 50m
