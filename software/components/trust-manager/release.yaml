@@ -35,6 +35,14 @@ spec:
       # all caps dropped, allowPrivilegeEscalation=false).
       securityContext:
         seccompProfileEnabled: true
+      # Disable the metrics Service. The chart emits trust-manager and
+      # trust-manager-metrics Services with identical selector
+      # (app: trust-manager); AKS Deployment Safeguards' unique-selector
+      # Gatekeeper policy rejects the second. We do not scrape trust-manager
+      # metrics, so dropping the Service is safe.
+      metrics:
+        service:
+          enabled: false
     # Allow Bundle targets to write Secret (not just ConfigMap) outputs,
     # scoped to just the two names the osdu services need.
     secretTargets:
