@@ -51,6 +51,10 @@ spec:
         value: "true"
       - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
         value: "true"
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1
+      - name: ENTITLEMENT_URL
+        value: http://entitlements/api/entitlements/v2
     # Init container to download unit catalog data.
     # Uses Azure Linux 3.0 (MCR-hosted) with tdnf to install curl.
     # Runs as root so tdnf can install; all capabilities dropped.

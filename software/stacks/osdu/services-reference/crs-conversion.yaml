@@ -53,6 +53,14 @@ spec:
         value: "true"
       - name: SIS_DATA
         value: /app/sis-data
+      - name: SERVICE_DOMAIN_NAME
+        value: dataservices.energy
+      - name: PARTITION_SERVICE_ENDPOINT
+        value: http://partition/api/partition/v1
+      - name: ENTITLEMENT_URL
+        value: http://entitlements/api/entitlements/v2
+      - name: STORAGE_URL
+        value: http://storage/api/storage/v2
     # Init container to download SIS reference data.
     # Uses Azure Linux 3.0 (MCR-hosted) with tdnf to install curl and tar.
     # Runs as root so tdnf can install; all capabilities dropped.
