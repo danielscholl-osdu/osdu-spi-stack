@@ -1,0 +1,106 @@
+# SPI Stack - Ingress profile: AZURE (default)
+#
+# Uses Azure's auto-assigned <label>.<region>.cloudapp.azure.com FQDN.
+# CLI patches the Istio ingress LB with service.beta.kubernetes.io/
+# azure-dns-label-name=<cluster-name> before this stack reconciles.
+# cert-manager issues a Let's Encrypt cert on the FQDN via HTTP-01 on
+# the existing HTTP:80 listener; gateway-tls-single-host adds the
+# HTTPS:443 listener referencing the cert Secret. All OSDU APIs and
+# middleware UIs (Kibana /kibana, Airflow /airflow) live under one host.
+#
+# Required variables in spi-ingress-config ConfigMap (flux-system):
+#   ACME_EMAIL, INGRESS_FQDN
+
+---
+# Cert issuers (Let's Encrypt staging + prod).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-cert-manager-issuers
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-cert-manager
+    - name: spi-gateway
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/cert-manager-issuers
+  prune: true
+  wait: true
+  timeout: 5m
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: spi-ingress-config
+        namespace: flux-system
+
+---
+# Kibana with server.basePath=/kibana so it can serve from a subpath.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-kibana
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-elasticsearch
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/overlays/kibana-subpath
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# HTTPS:443 listener with Let's Encrypt cert for the auto-FQDN.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-gateway-tls
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-cert-manager-issuers
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/overlays/gateway-tls-single-host
+  prune: true
+  wait: true
+  timeout: 10m
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: spi-ingress-config
+        namespace: flux-system
+
+---
+# HTTPRoutes for OSDU APIs + middleware UIs on the single FQDN.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-routes
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-osdu-services
+    - name: spi-kibana
+    - name: spi-gateway-tls
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/routes/single-host
+  prune: true
+  wait: true
+  timeout: 5m
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: spi-ingress-config
+        namespace: flux-system

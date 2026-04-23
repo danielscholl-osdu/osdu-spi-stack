@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Azure-mode overlay: base Kibana + server.basePath so Kibana can serve
+# from /kibana/ behind the single-hostname gateway listener.
+resources:
+  - ../../components/kibana
+patches:
+  - patch: |
+      apiVersion: kibana.k8s.elastic.co/v1
+      kind: Kibana
+      metadata:
+        name: kibana
+        namespace: platform
+      spec:
+        config:
+          server.basePath: /kibana
+          server.rewriteBasePath: true
+    target:
+      kind: Kibana
+      name: kibana

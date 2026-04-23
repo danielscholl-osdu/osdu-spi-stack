@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# DNS-mode overlay: base gateway (HTTP:80 for ACME challenges) plus three
+# HTTPS:443 listeners, one per hostname (osdu / kibana / airflow),
+# terminated with individual Let's Encrypt certs.
+resources:
+  - ../../components/gateway
+  - certificates.yaml
+patches:
+  - target:
+      group: gateway.networking.k8s.io
+      version: v1
+      kind: Gateway
+      name: spi-gateway
+    patch: |
+      - op: add
+        path: /spec/listeners/-
+        value:
+          name: https-osdu
+          protocol: HTTPS
+          port: 443
+          hostname: "${INGRESS_HOST_OSDU}"
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - name: osdu-tls
+          allowedRoutes:
+            namespaces:
+              from: All
+      - op: add
+        path: /spec/listeners/-
+        value:
+          name: https-kibana
+          protocol: HTTPS
+          port: 443
+          hostname: "${INGRESS_HOST_KIBANA}"
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - name: kibana-tls
+          allowedRoutes:
+            namespaces:
+              from: All
+      - op: add
+        path: /spec/listeners/-
+        value:
+          name: https-airflow
+          protocol: HTTPS
+          port: 443
+          hostname: "${INGRESS_HOST_AIRFLOW}"
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - name: airflow-tls
+          allowedRoutes:
+            namespaces:
+              from: All

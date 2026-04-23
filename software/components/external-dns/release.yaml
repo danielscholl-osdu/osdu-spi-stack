@@ -1,0 +1,56 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-dns
+  namespace: flux-system
+spec:
+  targetNamespace: foundation
+  interval: 30m
+  chart:
+    spec:
+      chart: external-dns
+      version: "9.x"
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+  values:
+    provider: azure
+    sources:
+      - gateway-httproute
+    policy: sync
+    registry: txt
+    txtOwnerId: "${TXT_OWNER_ID}"
+    domainFilters:
+      - "${DNS_ZONE}"
+    azure:
+      resourceGroup: "${DNS_ZONE_RG}"
+      tenantId: "${AZURE_TENANT_ID}"
+      useWorkloadIdentityExtension: true
+    serviceAccount:
+      create: true
+      name: external-dns
+      annotations:
+        azure.workload.identity/client-id: "${EXTERNAL_DNS_CLIENT_ID}"
+    podLabels:
+      azure.workload.identity/use: "true"
+    # AKS Automatic Safeguards compliance
+    containerSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+      seccompProfile:
+        type: RuntimeDefault
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi

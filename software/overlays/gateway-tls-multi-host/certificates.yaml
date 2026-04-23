@@ -1,0 +1,44 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: osdu-tls
+  namespace: aks-istio-ingress
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  secretName: osdu-tls
+  dnsNames:
+    - "${INGRESS_HOST_OSDU}"
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kibana-tls
+  namespace: aks-istio-ingress
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  secretName: kibana-tls
+  dnsNames:
+    - "${INGRESS_HOST_KIBANA}"
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: airflow-tls
+  namespace: aks-istio-ingress
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  secretName: airflow-tls
+  dnsNames:
+    - "${INGRESS_HOST_AIRFLOW}"
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer

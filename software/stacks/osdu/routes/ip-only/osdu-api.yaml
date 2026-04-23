@@ -1,0 +1,207 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: partition
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/partition/ }
+      backendRefs:
+        - name: osdu-partition
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: entitlements
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/entitlements/ }
+      backendRefs:
+        - name: osdu-entitlements
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: legal
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/legal/ }
+      backendRefs:
+        - name: osdu-legal
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: schema
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/schema-service/ }
+      backendRefs:
+        - name: osdu-schema
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: storage
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/storage/ }
+      backendRefs:
+        - name: osdu-storage
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: search
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/search/ }
+      backendRefs:
+        - name: osdu-search
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: indexer
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/indexer/ }
+      backendRefs:
+        - name: osdu-indexer
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: indexer-queue
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/indexer-queue/ }
+      backendRefs:
+        - name: osdu-indexer-queue
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: file
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/file/ }
+      backendRefs:
+        - name: osdu-file
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: workflow
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/workflow/ }
+      backendRefs:
+        - name: osdu-workflow
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: unit
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/unit/ }
+      backendRefs:
+        - name: osdu-unit
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: crs-catalog
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/crs/catalog/ }
+      backendRefs:
+        - name: osdu-crs-catalog
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: crs-conversion
+  namespace: osdu
+spec:
+  parentRefs:
+    - name: spi-gateway
+      namespace: aks-istio-ingress
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /api/crs/converter/ }
+      backendRefs:
+        - name: osdu-crs-conversion
+          port: 80
