@@ -33,19 +33,19 @@ spec:
         effect: NoSchedule
     probes:
       liveness:
-        path: /actuator/health
-        port: 8081
-        initialDelaySeconds: 300
-        periodSeconds: 15
-        timeoutSeconds: 10
-        failureThreshold: 6
-      readiness:
-        path: /actuator/health
-        port: 8081
-        initialDelaySeconds: 30
+        path: /api/crs/converter/actuator/health
+        port: 8080
+        initialDelaySeconds: 250
         periodSeconds: 10
-        timeoutSeconds: 10
-        failureThreshold: 6
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readiness:
+        path: /api/crs/converter/actuator/health
+        port: 8080
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
     env:
       - name: SPRING_APPLICATION_NAME
         value: crs-conversion
