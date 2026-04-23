@@ -51,28 +51,32 @@ spec:
         value: "true"
       - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
         value: "true"
-    # Init container to download unit catalog data
+    # Init container to download unit catalog data.
+    # Uses Azure Linux 3.0 (MCR-hosted) with tdnf to install curl.
+    # Runs as root so tdnf can install; all capabilities dropped.
     initContainers:
       - name: download-catalog
-        image: curlimages/curl:latest
+        image: mcr.microsoft.com/azurelinux/base/core:3.0
         command:
           - sh
           - -c
-          - curl -sSL -o /data/unit_catalog_v2.json https://community.opengroup.org/osdu/platform/system/reference/unit-service/-/raw/master/data/unit_catalog_v2.json
+          - |
+            tdnf install -y curl ca-certificates
+            curl -sSL -o /data/unit_catalog_v2.json https://community.opengroup.org/osdu/platform/system/reference/unit-service/-/raw/master/data/unit_catalog_v2.json
         volumeMounts:
           - name: unit-data
             mountPath: /data
         resources:
           requests:
-            cpu: 10m
-            memory: 64Mi
-          limits:
-            cpu: 100m
+            cpu: 50m
             memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
         securityContext:
+          runAsUser: 0
+          runAsNonRoot: false
           allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 1000
           capabilities:
             drop:
               - ALL

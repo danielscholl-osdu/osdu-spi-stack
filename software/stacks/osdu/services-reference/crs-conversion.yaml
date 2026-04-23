@@ -53,14 +53,17 @@ spec:
         value: "true"
       - name: SIS_DATA
         value: /app/sis-data
-    # Init container to download SIS reference data
+    # Init container to download SIS reference data.
+    # Uses Azure Linux 3.0 (MCR-hosted) with tdnf to install curl and tar.
+    # Runs as root so tdnf can install; all capabilities dropped.
     initContainers:
       - name: download-sis-data
-        image: curlimages/curl:latest
+        image: mcr.microsoft.com/azurelinux/base/core:3.0
         command:
           - sh
           - -c
           - |
+            tdnf install -y curl tar gzip ca-certificates
             mkdir -p /data/sis-data
             curl -sSL "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.tar.gz?path=appsettings/SISData" | tar xz -C /data/sis-data --strip-components=3
         volumeMounts:
@@ -68,15 +71,15 @@ spec:
             mountPath: /data
         resources:
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 50m
+            memory: 128Mi
           limits:
-            cpu: 100m
-            memory: 256Mi
+            cpu: 200m
+            memory: 384Mi
         securityContext:
+          runAsUser: 0
+          runAsNonRoot: false
           allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 1000
           capabilities:
             drop:
               - ALL
