@@ -121,6 +121,12 @@ module aksCluster 'br/public:avm/res/container-service/managed-cluster:0.13.0' =
     skuName: 'Automatic'
     kubernetesVersion: kubernetesVersion
 
+    // Shorter node RG name than the AKS default
+    // (``${clusterName}_aks_${clusterName}_nodes``). Immutable after
+    // cluster creation, so existing environments keep their old names;
+    // new environments get the clean ``{clusterName}-nodes`` form.
+    nodeResourceGroup: '${clusterName}-nodes'
+
     // Automatic requires public API server for Karpenter.
     publicNetworkAccess: 'Enabled'
 
