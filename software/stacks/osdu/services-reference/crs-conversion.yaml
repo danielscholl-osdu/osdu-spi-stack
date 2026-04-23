@@ -31,15 +31,28 @@ spec:
         operator: Equal
         value: "osdu"
         effect: NoSchedule
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
     probes:
       liveness:
         path: /actuator/health
         port: 8081
-        initialDelaySeconds: 250
+        initialDelaySeconds: 300
+        periodSeconds: 15
+        timeoutSeconds: 10
+        failureThreshold: 6
       readiness:
         path: /actuator/health
         port: 8081
-        initialDelaySeconds: 10
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 10
+        failureThreshold: 6
     env:
       - name: SPRING_APPLICATION_NAME
         value: crs-conversion
