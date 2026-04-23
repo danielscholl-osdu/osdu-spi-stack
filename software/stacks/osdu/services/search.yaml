@@ -25,7 +25,7 @@ spec:
   values:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/search-service/search-service-master
-      tag: "1756362704ad9ee2b63c83562cebcd9abd233e26"
+      tag: "151b5bd5139936ea699f59ce604604fb6047e346"
     elasticTls: true
     redisTls: true
     nodeSelector:

@@ -23,7 +23,7 @@ spec:
   values:
     image:
       repository: community.opengroup.org:5555/osdu/platform/system/partition/partition-master
-      tag: "a57c4725b5923cfc9d9f8e6fd418b299ca79350d"
+      tag: "ba2d09bcd749dcb4a288b6b310584b95492d7e74"
     redisTls: true
     nodeSelector:
       agentpool: osdu
