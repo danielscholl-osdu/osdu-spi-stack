@@ -56,14 +56,13 @@ spec:
     # Init container to download SIS reference data
     initContainers:
       - name: download-sis-data
-        image: curlimages/curl:8.9.1
+        image: curlimages/curl:latest
         command:
           - sh
           - -c
           - |
-            curl -sL "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.zip?path=appsettings/SISData" -o /tmp/sis.zip
-            unzip -q /tmp/sis.zip -d /tmp/sis
-            cp -r /tmp/sis/*/appsettings/SISData /data/sis-data
+            mkdir -p /data/sis-data
+            curl -sSL "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/archive/master/crs-conversion-service-master.tar.gz?path=appsettings/SISData" | tar xz -C /data/sis-data --strip-components=3
         volumeMounts:
           - name: sis-data
             mountPath: /data

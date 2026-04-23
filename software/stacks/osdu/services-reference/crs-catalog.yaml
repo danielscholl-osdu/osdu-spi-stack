@@ -51,3 +51,35 @@ spec:
         value: "true"
       - name: AZURE_PAAS_WORKLOADIDENTITY_ISENABLED
         value: "true"
+    # Init container to download CRS catalog data
+    initContainers:
+      - name: download-catalog
+        image: curlimages/curl:latest
+        command:
+          - sh
+          - -c
+          - curl -sSL -o /data/crs_catalog_v2.json https://community.opengroup.org/osdu/platform/system/reference/crs-catalog-service/-/raw/master/data/crs_catalog_v2.json
+        volumeMounts:
+          - name: crs-data
+            mountPath: /data
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+    volumeMounts:
+      - name: crs-data
+        mountPath: /mnt/crs_catalogs
+        readOnly: true
+    volumes:
+      - name: crs-data
+        emptyDir: {}
