@@ -3,11 +3,11 @@
 #
 # Layer 0a: Namespaces
 # Layer 0b: Karpenter NodePools (platform + osdu)
-# Layer 1: Operators (ECK, CNPG) + cert-manager + Gateway
+# Layer 1: Operators (ECK, CNPG) + cert-manager + trust-manager + Gateway
 # Layer 2: Middleware (Elasticsearch, Redis, PostgreSQL) -- on platform nodes
 # Layer 3: Airflow (depends on PostgreSQL) -- on platform nodes
 # Layer 4a: OSDU configuration (ConfigMap created by CLI)
-# Layer 4b: Bootstrap (CA mirror + Redis Istio DR; replaces CLI runtime-bootstrap)
+# Layer 4b: Bootstrap (trust-manager Bundles for CA distribution + Redis Istio DR)
 # Layer 5: Core OSDU services (10 services) -- on osdu nodes
 # Layer 6: Reference services (unit, crs-conversion, crs-catalog) -- on osdu nodes
 
@@ -62,6 +62,25 @@ spec:
     kind: GitRepository
     name: osdu-spi-stack-system
   path: ./software/components/cert-manager
+  prune: true
+  wait: true
+  timeout: 10m
+
+---
+# Layer 1a2: trust-manager (cross-namespace CA bundle distribution)
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-trust-manager
+  namespace: flux-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-cert-manager
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/components/trust-manager
   prune: true
   wait: true
   timeout: 10m
@@ -222,10 +241,11 @@ spec:
   timeout: 5m
 
 ---
-# Layer 4b: Bootstrap (CA mirror + Redis Istio DestinationRule)
-# Runs a Job that copies the Redis and Elasticsearch TLS CAs from
-# platform -> osdu, and applies the Redis mTLS-disable DestinationRule.
-# Depends on middleware being Ready so the source secrets exist.
+# Layer 4b: Bootstrap (trust-manager Bundles + Redis Istio DestinationRule)
+# Declares two trust-manager Bundle CRs that mirror the Redis and
+# Elasticsearch TLS CAs from platform -> osdu, plus the Redis mTLS-disable
+# DestinationRule. Depends on middleware being Ready so the source secrets
+# exist, and on trust-manager so the Bundle CRD is registered.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -234,6 +254,7 @@ metadata:
 spec:
   interval: 10m
   dependsOn:
+    - name: spi-trust-manager
     - name: spi-elasticsearch
     - name: spi-redis
     - name: spi-osdu-config

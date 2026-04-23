@@ -28,6 +28,7 @@ software/
   charts/osdu-spi-service/ Local Helm chart (AKS Safeguards-compliant)
   components/              In-cluster middleware (Flux manifests)
     cert-manager/          TLS certificate management
+    trust-manager/         Cross-namespace CA bundle distribution
     operators/eck/         Elasticsearch operator
     operators/cnpg/        PostgreSQL operator
     elasticsearch/         3-node ES cluster
