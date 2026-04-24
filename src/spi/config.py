@@ -62,8 +62,6 @@ class Config(BaseModel):
     ingress_prefix: str = ""     # defaults to env
     acme_email: str = ""         # defaults to admin@<fqdn>|<zone>
     ingress_fqdn: str = ""       # azure mode: resolved LB FQDN
-    # Output control
-    verbose: bool = False
 
     @staticmethod
     def from_env(env: str, **kwargs) -> "Config":

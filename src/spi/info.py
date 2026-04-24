@@ -24,19 +24,12 @@ and renders the right base URL / middleware UI table per ingress mode:
 
 import base64
 import json
-import subprocess
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.theme import Theme
 
-console = Console(theme=Theme({
-    "ready": "bold green",
-    "info": "dim white",
-    "warning": "bold yellow",
-    "error": "bold red",
-}))
+from .console import console
+from .shell import kubectl_json
 
 # OSDU API services exposed via HTTPRoutes. Order preserved for display.
 _OSDU_API_PATHS = [
@@ -56,22 +49,9 @@ _OSDU_API_PATHS = [
 ]
 
 
-def _kubectl_json(args: list):
-    result = subprocess.run(
-        ["kubectl"] + args + ["-o", "json"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return None
-
-
 def _secret_value(namespace: str, name: str, key: str) -> str:
     """Read a base64-decoded value from a k8s Secret. Empty string on error."""
-    data = _kubectl_json(["get", "secret", name, "-n", namespace])
+    data = kubectl_json(["get", "secret", name, "-n", namespace])
     if not data:
         return ""
     raw = data.get("data", {}).get(key, "")
@@ -85,7 +65,7 @@ def _secret_value(namespace: str, name: str, key: str) -> str:
 
 def _read_ingress_config() -> dict:
     """Read the CLI-written spi-ingress-config ConfigMap. Empty dict if missing."""
-    data = _kubectl_json(["get", "configmap", "spi-ingress-config", "-n", "flux-system"])
+    data = kubectl_json(["get", "configmap", "spi-ingress-config", "-n", "flux-system"])
     if not data:
         return {}
     return data.get("data", {}) or {}
@@ -93,7 +73,7 @@ def _read_ingress_config() -> dict:
 
 def _read_osdu_config() -> dict:
     """Read the osdu-config ConfigMap from the osdu namespace. Empty if missing."""
-    data = _kubectl_json(["get", "configmap", "osdu-config", "-n", "osdu"])
+    data = kubectl_json(["get", "configmap", "osdu-config", "-n", "osdu"])
     if not data:
         return {}
     return data.get("data", {}) or {}
@@ -101,7 +81,7 @@ def _read_osdu_config() -> dict:
 
 def _read_flux_extension_values() -> dict:
     """Read Azure metadata injected by the AKS Flux extension."""
-    data = _kubectl_json(["get", "configmap", "flux-extension-values", "-n", "flux-system"])
+    data = kubectl_json(["get", "configmap", "flux-extension-values", "-n", "flux-system"])
     if not data:
         return {}
     return data.get("data", {}) or {}
@@ -147,7 +127,7 @@ def _compute_endpoints(cfg: dict) -> tuple:
 def _discover_gateway_ip() -> str:
     """Fallback: find the Istio ingress LB IP when the ConfigMap is missing."""
     for ns in ["aks-istio-ingress", "istio-system"]:
-        data = _kubectl_json(["get", "svc", "-n", ns])
+        data = kubectl_json(["get", "svc", "-n", ns])
         if not data or "items" not in data:
             continue
         for svc in data["items"]:
@@ -224,7 +204,7 @@ def _build_internal_services() -> list:
 
 
 def render_info(show_secrets: bool = False, show_apis: bool = False, output_json: bool = False):
-    from .helpers import get_suspend_status
+    from .guard import get_suspend_status
 
     cfg = _read_ingress_config()
     osdu = _read_osdu_config()

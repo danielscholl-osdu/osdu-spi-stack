@@ -12,13 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Provider dispatch (Azure-only for SPI Stack)."""
+"""Shared path constants."""
 
-from ..config import Config
-from ..checks import get_tools_for_provider
+from pathlib import Path
 
-from .azure import deploy_azure, cleanup_azure
-
-DEPLOY_FN = deploy_azure
-CLEANUP_FN = cleanup_azure
-PREREQ_TOOLS = get_tools_for_provider()
+# src/spi/paths.py -> three parents up is the repo root.
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent

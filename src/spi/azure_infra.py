@@ -45,24 +45,16 @@ are skipped and an empty outputs dict is returned.
 
 import json
 import time
-from pathlib import Path
 from typing import Any, Dict
 
+from .bicep import run_bicep_deployment
 from .config import Config
-from .helpers import (
-    console,
-    display_result,
-    run_bicep_deployment,
-    run_command,
-)
+from .console import console, display_result
+from .paths import REPO_ROOT
+from .shell import run_command
 
-# ─────────────────────────────────────────────────────────────
-# Path to the Bicep template. Relative to the repo root.
-# src/spi/azure_infra.py  ->  three parents up is the repo root.
-# ─────────────────────────────────────────────────────────────
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-INFRA_MAIN_BICEP = _REPO_ROOT / "infra" / "main.bicep"
-INFRA_AKS_BICEP = _REPO_ROOT / "infra" / "aks.bicep"
+INFRA_MAIN_BICEP = REPO_ROOT / "infra" / "main.bicep"
+INFRA_AKS_BICEP = REPO_ROOT / "infra" / "aks.bicep"
 
 
 # ─────────────────────────────────────────────────────────────

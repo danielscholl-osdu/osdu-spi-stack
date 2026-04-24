@@ -17,7 +17,11 @@
 import json
 import platform
 import subprocess
-from typing import Optional
+from typing import List, Optional
+
+import typer
+
+from .console import console
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +85,10 @@ TOOL_REGISTRY = {
 }
 
 
+# All tools are required; Azure is the only target.
+PREREQ_TOOLS: List[str] = list(TOOL_REGISTRY.keys())
+
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
@@ -129,13 +137,35 @@ def get_install_hint(tool_name: str) -> Optional[str]:
     return install.get(plat) or install.get("*")
 
 
-def get_tools_for_provider() -> list:
-    """Return all required tool names (Azure-only)."""
-    return list(TOOL_REGISTRY.keys())
+# ---------------------------------------------------------------------------
+# Pre-flight check used by ``spi up`` / ``spi down``
+# ---------------------------------------------------------------------------
+
+def check_prerequisites(tools: List[str]) -> None:
+    """Verify that each tool is installed; exit on the first missing one."""
+    console.print("\n[bold]Checking prerequisites...[/bold]")
+
+    missing = []
+    for tool in tools:
+        info = TOOL_REGISTRY.get(tool, {})
+        installed, _ = check_tool_status(tool, info.get("check_args"))
+        if installed:
+            console.print(f"  [success]{tool}[/success]")
+        else:
+            console.print(f"  [error]{tool} -- NOT FOUND[/error]")
+            hint = get_install_hint(tool)
+            if hint:
+                console.print(f"    [info]Install: {hint}[/info]")
+            missing.append(tool)
+
+    if missing:
+        console.print(f"\n[error]Missing required tools: {', '.join(missing)}[/error]")
+        console.print("[dim]Run 'uv run spi check' for full details.[/dim]")
+        raise typer.Exit(code=1)
 
 
 # ---------------------------------------------------------------------------
-# Full check run
+# Full check run (``spi check``)
 # ---------------------------------------------------------------------------
 
 def run_checks() -> list:

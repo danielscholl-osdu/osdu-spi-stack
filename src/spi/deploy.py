@@ -12,33 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Azure provider - AKS Automatic with SPI services via GitOps."""
+"""Deployment orchestrator.
+
+Provisions Azure PaaS (via ``azure_infra.provision_azure_infra``), bootstraps
+the cluster (namespaces, StorageClasses, Gateway API CRDs, ingress ConfigMap,
+Workload Identity SAs, in-cluster seed secrets), activates GitOps via Flux,
+and writes the KV runtime secrets that OSDU services read at startup.
+"""
 
 import time
-from pathlib import Path
 
 import typer
 
-from ..config import Config, IngressMode
-from ..helpers import (
-    console, run_command, display_result, run_bicep_deployment,
-    create_storage_classes, ensure_namespaces,
-    install_gateway_api_crds, kubectl_apply_yaml, display_yaml,
-    discover_dns_zone, compute_ingress_fqdn,
-    get_ingress_ip, create_ingress_config,
+from .azure_infra import provision_azure_infra
+from .bicep import run_bicep_deployment
+from .bootstrap import (
+    create_storage_classes,
+    ensure_namespaces,
+    install_gateway_api_crds,
 )
-from ..secrets import ensure_secrets, get_or_create_seed
-from ..azure_infra import provision_azure_infra
-from ..runtime_bootstrap import write_keyvault_bootstrap_secrets
-from ..templates import osdu_config_configmap, workload_identity_sa
+from .config import Config, IngressMode
+from .console import console, display_result, display_yaml
+from .ingress import (
+    create_ingress_config,
+    discover_dns_zone,
+    get_ingress_ip,
+    resolve_post_deploy_inputs,
+)
+from .paths import REPO_ROOT
+from .secrets import ensure_secrets, get_or_create_seed
+from .shell import kubectl_apply_yaml, run_command
+from .templates import osdu_config_configmap, workload_identity_sa
+
+INFRA_FLUX_BICEP = REPO_ROOT / "infra" / "flux.bicep"
 
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-INFRA_FLUX_BICEP = _REPO_ROOT / "infra" / "flux.bicep"
-
-
-def _create_osdu_config(config: Config, infra_outputs: dict):
-    """Create the osdu-config ConfigMap and workload identity SA in the osdu namespace."""
+def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
+    """Create the osdu-config ConfigMap and workload identity SAs."""
     console.print("\n[bold]Creating OSDU configuration...[/bold]")
 
     partition = config.primary_partition
@@ -57,7 +67,6 @@ def _create_osdu_config(config: Config, infra_outputs: dict):
     kubectl_apply_yaml(yaml_content, "apply osdu-config ConfigMap")
     display_result("osdu-config ConfigMap created")
 
-    # Create workload identity SA in both platform and osdu namespaces
     for ns in ["platform", "osdu"]:
         sa_yaml = workload_identity_sa(
             namespace=ns,
@@ -68,33 +77,52 @@ def _create_osdu_config(config: Config, infra_outputs: dict):
     display_result("Workload Identity ServiceAccounts created")
 
 
-def _resolve_ingress_inputs(config: Config) -> None:
-    """Resolve ingress-mode-specific inputs that require a live AKS cluster.
+def _write_keyvault_bootstrap_secrets(
+    config: Config,
+    keyvault_name: str,
+    storage_account_name: str,
+    elastic_password: str,
+    redis_password: str,
+) -> None:
+    """Write the small set of secrets OSDU services read at startup.
 
-    Mutates ``config`` in place:
-      - azure mode: patches the Istio ingress LB with azure-dns-label-name
-        and waits for Azure to publish the FQDN (status.loadBalancer.
-        ingress[0].hostname). Stores on ``config.ingress_fqdn``.
-      - dns mode:   if ``config.dns_zone`` is empty, auto-discovers a single
-        DNS zone in the current subscription and populates
-        ``config.dns_zone`` + ``config.dns_zone_rg``.
-      - ip mode:    no-op.
+    Partition reads tbl-storage-endpoint to locate its metadata table.
+    Indexer and workflow read redis-hostname/redis-password via KeyVaultFacade.
+    Search and indexer read {partition}-elastic-* via partition service API.
     """
-    if config.ingress_mode == IngressMode.AZURE:
-        config.ingress_fqdn = compute_ingress_fqdn(
-            dns_label=config.dns_label,
-            location=config.location,
+    console.print("\n[bold]Writing OSDU bootstrap secrets to Key Vault...[/bold]")
+    partition = config.primary_partition
+    tbl_endpoint = f"https://{storage_account_name}.table.core.windows.net/"
+    elastic_endpoint = "https://elasticsearch-es-http.platform.svc.cluster.local:9200"
+    redis_hostname = "platform-redis-master.platform.svc.cluster.local"
+
+    secrets_to_write = [
+        ("tbl-storage-endpoint", tbl_endpoint),
+        ("redis-hostname", redis_hostname),
+        ("redis-password", redis_password),
+        (f"{partition}-elastic-endpoint", elastic_endpoint),
+        (f"{partition}-elastic-username", "elastic"),
+        (f"{partition}-elastic-password", elastic_password),
+    ]
+
+    for name, value in secrets_to_write:
+        run_command(
+            [
+                "az", "keyvault", "secret", "set",
+                "--vault-name", keyvault_name,
+                "--name", name,
+                "--value", value,
+                "--output", "none",
+            ],
+            description=f"Set KV secret: {name}",
+            display=False,
         )
-        display_result(f"Azure FQDN target: {config.ingress_fqdn}")
-    elif config.ingress_mode == IngressMode.DNS:
-        if not config.dns_zone:
-            zone, rg = discover_dns_zone()
-            config.dns_zone = zone
-            config.dns_zone_rg = rg
-            display_result(f"Using DNS zone: {zone} (rg: {rg})")
+        console.print(f"  [success]{name}[/success]")
+
+    display_result(f"{len(secrets_to_write)} Key Vault secrets written")
 
 
-def deploy_azure(config: Config, dry_run: bool = False):
+def deploy_azure(config: Config, dry_run: bool = False) -> None:
     """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps.
 
     In ``dry_run`` mode, only the Azure PaaS Bicep preview runs; AKS, the
@@ -123,7 +151,7 @@ def deploy_azure(config: Config, dry_run: bool = False):
     _create_osdu_config(config, infra_outputs)
 
     # Phase 4b: Ingress mode resolution (requires live cluster + Istio LB)
-    _resolve_ingress_inputs(config)
+    resolve_post_deploy_inputs(config)
     create_ingress_config(
         config=config,
         external_dns_client_id=infra_outputs.get("external_dns_client_id", ""),
@@ -156,7 +184,7 @@ def deploy_azure(config: Config, dry_run: bool = False):
     # Only the KV seed writes remain here; they run in seconds since all
     # values are known as soon as infra is up and the seed is generated.
     seed = get_or_create_seed()
-    write_keyvault_bootstrap_secrets(
+    _write_keyvault_bootstrap_secrets(
         config=config,
         keyvault_name=config.keyvault_name,
         storage_account_name=infra_outputs.get("common_storage_name", ""),
@@ -165,7 +193,7 @@ def deploy_azure(config: Config, dry_run: bool = False):
     )
 
 
-def cleanup_azure(config: Config):
+def cleanup_azure(config: Config) -> None:
     """Delete Azure resource group and all resources."""
     console.print("\n[bold]Cleaning up Azure resources...[/bold]")
     result = run_command(

@@ -28,19 +28,10 @@ import secrets
 import string
 import subprocess
 
-from rich.console import Console
-from rich.theme import Theme
-
 import typer
 
-from .helpers import kubectl_apply_yaml
-
-console = Console(theme=Theme({
-    "ready": "bold green",
-    "info": "bold cyan",
-    "warning": "bold yellow",
-    "error": "bold red",
-}))
+from .console import console
+from .shell import kubectl_apply_yaml
 
 SEED_NAME = "spi-secrets"
 SEED_NAMESPACE = "flux-system"

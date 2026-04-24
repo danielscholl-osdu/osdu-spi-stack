@@ -14,17 +14,18 @@
 
 """SPI CLI - Deploy OSDU SPI Stack on Azure AKS Automatic."""
 
-import os
-import sys
-from typing import Optional, List
+from typing import List, Optional
 
 import typer
 from rich.panel import Panel
 from rich.table import Table
 
+from .checks import PREREQ_TOOLS, check_prerequisites
 from .config import Config, IngressMode, Profile
-from .helpers import console, check_prerequisites, run_command, get_suspend_status, verify_spi_cluster
-from .providers import PREREQ_TOOLS
+from .console import console
+from .guard import get_suspend_status, verify_spi_cluster
+from .ingress import resolve_acme_email, resolve_ingress_mode
+from .shell import run_command
 
 app = typer.Typer(
     name="spi",
@@ -53,21 +54,6 @@ def _show_config(config: Config):
         table.add_row("DNS Zone", f"{config.dns_zone} (rg: {config.dns_zone_rg})")
 
     console.print(table)
-
-
-def _resolve_ingress_mode(cli_flag: Optional[IngressMode]) -> IngressMode:
-    """Resolve the ingress mode. Precedence: --flag > SPI_INGRESS_MODE env > default (azure)."""
-    if cli_flag is not None:
-        return cli_flag
-    env_val = os.environ.get("SPI_INGRESS_MODE", "").strip().lower()
-    if env_val in {m.value for m in IngressMode}:
-        return IngressMode(env_val)
-    if env_val:
-        console.print(
-            f"[warning]Invalid SPI_INGRESS_MODE '{env_val}'; "
-            f"falling back to 'azure'.[/warning]"
-        )
-    return IngressMode.AZURE
 
 
 def _show_next_steps(config: Config):
@@ -191,25 +177,20 @@ def up(
         help="Preview Azure PaaS changes via Bicep what-if. Creates the resource group "
              "(required by what-if) but skips AKS, Kubernetes bootstrap, and GitOps.",
     ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show all sub-resource commands"),
 ):
     """Provision Azure infrastructure and deploy the OSDU SPI stack."""
     if profile is None:
         profile = Profile.CORE
 
-    resolved_mode = _resolve_ingress_mode(ingress_mode)
-    resolved_acme = acme_email or os.environ.get("SPI_ACME_EMAIL", "")
-
     config = _build_config(
         profile=profile, env=env, repo_url=repo_url,
         branch=branch, location=location,
         data_partitions=data_partitions,
-        ingress_mode=resolved_mode,
+        ingress_mode=resolve_ingress_mode(ingress_mode),
         dns_zone=dns_zone,
         ingress_prefix=ingress_prefix,
-        acme_email=resolved_acme,
+        acme_email=resolve_acme_email(acme_email),
     )
-    config.verbose = verbose
 
     title = "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack"
     if dry_run:
@@ -223,7 +204,7 @@ def up(
     check_prerequisites(PREREQ_TOOLS)
 
     try:
-        from .providers.azure import deploy_azure
+        from .deploy import deploy_azure
         deploy_azure(config, dry_run=dry_run)
         if dry_run:
             console.print(
@@ -254,7 +235,7 @@ def down(
 
     check_prerequisites(["az"])
 
-    from .providers.azure import cleanup_azure
+    from .deploy import cleanup_azure
     cleanup_azure(config)
 
 

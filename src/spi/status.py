@@ -14,41 +14,16 @@
 
 """Deployment status dashboard."""
 
-import json
-import subprocess
 import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.theme import Theme
 
-console = Console(
-    theme=Theme(
-        {
-            "ready": "bold green",
-            "notready": "bold yellow",
-            "failed": "bold red",
-            "header": "bold cyan",
-            "dim": "dim white",
-        }
-    )
-)
-
-
-def kubectl_json(args: List[str]) -> Optional[dict]:
-    """Run kubectl with JSON output, return parsed dict or None."""
-    cmd = ["kubectl"] + args + ["-o", "json"]
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
+from .console import console
+from .shell import kubectl_json
 
 
 def status_icon(ready: bool, message: str = "") -> Text:
@@ -349,7 +324,7 @@ def get_pod_table(namespace: str, title: str) -> Table:
 
 
 def get_summary() -> Panel:
-    from .helpers import get_suspend_status
+    from .guard import get_suspend_status
 
     counts = {"ready": 0, "progressing": 0, "failed": 0}
     data = kubectl_json(["get", "kustomizations", "-n", "flux-system"])
@@ -379,7 +354,7 @@ def get_summary() -> Panel:
 
 
 def render_status():
-    from .helpers import get_suspend_status
+    from .guard import get_suspend_status
 
     console.print(Panel("[bold]SPI Stack Status[/bold]", border_style="cyan"))
 

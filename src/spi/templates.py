@@ -15,40 +15,6 @@
 """YAML templates for Kubernetes resources."""
 
 
-def git_repository(url: str, branch: str) -> str:
-    """Flux GitRepository source for the SPI stack."""
-    return f"""\
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata:
-  name: osdu-spi-stack-system
-  namespace: flux-system
-spec:
-  interval: 5m
-  url: {url}
-  ref:
-    branch: {branch}"""
-
-
-def stack_kustomization(profile: str) -> str:
-    """Top-level Flux Kustomization that deploys the selected profile."""
-    return f"""\
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: osdu-spi-stack
-  namespace: flux-system
-spec:
-  interval: 10m
-  sourceRef:
-    kind: GitRepository
-    name: osdu-spi-stack-system
-  path: ./software/stacks/osdu/profiles/{profile}
-  prune: true
-  wait: true
-  timeout: 30m"""
-
-
 def storage_class(
     name: str,
     provisioner: str,
