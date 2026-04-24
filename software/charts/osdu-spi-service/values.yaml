@@ -54,11 +54,11 @@ probes:
 # -- Resource requests and limits
 resources:
   requests:
-    cpu: 200m
-    memory: 512Mi
+    cpu: 300m
+    memory: 896Mi
   limits:
     cpu: "1"
-    memory: 1Gi
+    memory: 1536Mi
 
 # -- Extra environment variables (list of {name, value} objects)
 env: []

@@ -22,7 +22,10 @@ spec:
           values: ["D"]
         - key: karpenter.azure.com/sku-cpu
           operator: In
-          values: ["4", "8"]
+          values: ["8"]
+        - key: karpenter.azure.com/sku-memory
+          operator: Gt
+          values: ["30000"]
         - key: karpenter.azure.com/sku-storage-premium-capable
           operator: In
           values: ["true"]
@@ -74,10 +77,10 @@ spec:
           values: ["D"]
         - key: karpenter.azure.com/sku-cpu
           operator: In
-          values: ["4", "8"]
+          values: ["8"]
         - key: karpenter.azure.com/sku-memory
           operator: Gt
-          values: ["15"]
+          values: ["30000"]
         - key: karpenter.azure.com/sku-storage-premium-capable
           operator: In
           values: ["true"]
@@ -98,7 +101,7 @@ spec:
     consolidationPolicy: WhenEmptyOrUnderutilized
     consolidateAfter: 5m
   limits:
-    cpu: "32"
+    cpu: "64"
     memory: 256Gi
 ---
 apiVersion: karpenter.azure.com/v1beta1
