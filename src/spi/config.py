@@ -106,5 +106,11 @@ class Config(BaseModel):
 
     @property
     def dns_label(self) -> str:
-        """Azure-mode DNS label. Uses cluster_name (already unique per env)."""
-        return self.cluster_name
+        """Azure-mode DNS label for the Istio ingress PIP.
+
+        Uses cluster_name with an '-ingress' suffix so it doesn't collide
+        with the AKS-default 'aks-istio-ingressgateway-external' PIP,
+        which is provisioned unconditionally by AKS Automatic and may
+        briefly receive the same label through annotation races.
+        """
+        return f"{self.cluster_name}-ingress"
