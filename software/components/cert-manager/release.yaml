@@ -16,6 +16,13 @@ spec:
   values:
     crds:
       enabled: true
+    # Enable Gateway API support so ClusterIssuers can solve HTTP-01
+    # challenges via gatewayHTTPRoute (required by our Let's Encrypt
+    # ClusterIssuers in software/components/cert-manager-issuers/).
+    config:
+      apiVersion: controller.config.cert-manager.io/v1alpha1
+      kind: ControllerConfiguration
+      enableGatewayAPI: true
     global:
       podSecurityPolicy:
         enabled: false
