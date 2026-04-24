@@ -13,7 +13,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/partition/ }
       backendRefs:
-        - name: osdu-partition
+        - name: partition
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -31,7 +31,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/entitlements/ }
       backendRefs:
-        - name: osdu-entitlements
+        - name: entitlements
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -49,7 +49,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/legal/ }
       backendRefs:
-        - name: osdu-legal
+        - name: legal
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -67,7 +67,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/schema-service/ }
       backendRefs:
-        - name: osdu-schema
+        - name: schema
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -85,7 +85,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/storage/ }
       backendRefs:
-        - name: osdu-storage
+        - name: storage
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -103,7 +103,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/search/ }
       backendRefs:
-        - name: osdu-search
+        - name: search
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -121,7 +121,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/indexer/ }
       backendRefs:
-        - name: osdu-indexer
+        - name: indexer
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -139,7 +139,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/indexer-queue/ }
       backendRefs:
-        - name: osdu-indexer-queue
+        - name: indexer-queue
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -157,7 +157,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/file/ }
       backendRefs:
-        - name: osdu-file
+        - name: file
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -175,7 +175,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/workflow/ }
       backendRefs:
-        - name: osdu-workflow
+        - name: workflow
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -193,7 +193,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/unit/ }
       backendRefs:
-        - name: osdu-unit
+        - name: unit
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -211,7 +211,7 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/crs/catalog/ }
       backendRefs:
-        - name: osdu-crs-catalog
+        - name: crs-catalog
           port: 80
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -229,5 +229,5 @@ spec:
     - matches:
         - path: { type: PathPrefix, value: /api/crs/converter/ }
       backendRefs:
-        - name: osdu-crs-conversion
+        - name: crs-conversion
           port: 80

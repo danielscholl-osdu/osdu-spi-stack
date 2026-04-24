@@ -26,8 +26,8 @@ data:
     #!/usr/bin/env sh
     set -u
 
-    AZURE_SCHEMA_URL="http://osdu-schema.osdu.svc.cluster.local/api/schema-service/v1/schemas/system"
-    SCHEMA_INFO_URL="http://osdu-schema.osdu.svc.cluster.local/api/schema-service/v1/info"
+    AZURE_SCHEMA_URL="http://schema.osdu.svc.cluster.local/api/schema-service/v1/schemas/system"
+    SCHEMA_INFO_URL="http://schema.osdu.svc.cluster.local/api/schema-service/v1/info"
     export AZURE_SCHEMA_URL
 
     # Wait up to ~20 min for the schema service to return 200 on /info.

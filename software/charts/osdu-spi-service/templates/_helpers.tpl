@@ -13,6 +13,13 @@ You may obtain a copy of the License at
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Service DNS name: strip a leading "osdu-" so bare hostnames used in
+     OSDU cross-service env vars (e.g. http://entitlements/...) resolve.
+     Release name remains "osdu-<svc>" for Deployment/Pod/SA readability. */}}
+{{- define "osdu-spi-service.serviceName" -}}
+{{- .Release.Name | trimPrefix "osdu-" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/* Selector labels */}}
 {{- define "osdu-spi-service.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "osdu-spi-service.name" . }}

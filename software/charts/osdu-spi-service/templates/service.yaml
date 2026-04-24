@@ -11,7 +11,7 @@ You may obtain a copy of the License at
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "osdu-spi-service.name" . }}
+  name: {{ include "osdu-spi-service.serviceName" . }}
   labels:
     {{- include "osdu-spi-service.labels" . | nindent 4 }}
 spec:
