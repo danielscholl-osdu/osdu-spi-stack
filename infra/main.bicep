@@ -80,6 +80,15 @@ param partitionStorageNames array
 @description('OIDC issuer URL from the AKS cluster. Empty string skips federated credential creation.')
 param oidcIssuerUrl string = ''
 
+@description('External DNS UAMI name. Only used when dnsZoneName is non-empty.')
+param externalDnsIdentityName string = ''
+
+@description('Azure DNS zone name (e.g. example.com). Empty means DNS mode is disabled; ExternalDNS UAMI + role assignment are skipped.')
+param dnsZoneName string = ''
+
+@description('Resource group that contains the Azure DNS zone. Required when dnsZoneName is set.')
+param dnsZoneResourceGroup string = ''
+
 // ──────────────────────────────────────────────────────────
 // Modules (shared resources, parallel)
 // ──────────────────────────────────────────────────────────
@@ -169,6 +178,34 @@ module rbacModule 'modules/rbac.bicep' = {
     storageCommonModule
     partitionModules
   ]
+}
+
+// ──────────────────────────────────────────────────────────
+// ExternalDNS identity + DNS Zone Contributor role (dns mode only)
+// ──────────────────────────────────────────────────────────
+//
+// Conditional on a non-empty dnsZoneName. The CLI passes this only in
+// ingress-mode=dns. DNS Zone Contributor binds to the zone's resource
+// group (possibly different from the spi-stack RG).
+
+module externalDnsIdentityModule 'modules/external-dns-identity.bicep' = if (!empty(dnsZoneName)) {
+  name: 'spi-external-dns-identity'
+  params: {
+    name: externalDnsIdentityName
+    location: location
+    oidcIssuerUrl: oidcIssuerUrl
+  }
+}
+
+module externalDnsRoleModule 'modules/external-dns-role.bicep' = if (!empty(dnsZoneName)) {
+  name: 'spi-external-dns-role'
+  scope: resourceGroup(dnsZoneResourceGroup)
+  params: {
+    dnsZoneName: dnsZoneName
+    // Safe: the same !empty(dnsZoneName) guard ensures the identity module deployed.
+    #disable-next-line BCP318
+    principalId: externalDnsIdentityModule.outputs.principalId
+  }
 }
 
 // ──────────────────────────────────────────────────────────
@@ -345,3 +382,11 @@ output partitionServiceBusIds array = [for i in range(0, length(dataPartitions))
 output partitionServiceBusNames array = serviceBusNames
 output partitionStorageIds array = [for i in range(0, length(dataPartitions)): partitionModules[i].outputs.storageId]
 output partitionStorageNamesOut array = partitionStorageNames
+
+// ExternalDNS identity (empty string when ingress mode != dns). The CLI
+// plumbs this into the spi-ingress-config ConfigMap so the HelmRelease
+// can wire workload-identity annotations on the service account.
+#disable-next-line BCP318
+output externalDnsClientId string = !empty(dnsZoneName) ? externalDnsIdentityModule.outputs.clientId : ''
+#disable-next-line BCP318
+output externalDnsPrincipalId string = !empty(dnsZoneName) ? externalDnsIdentityModule.outputs.principalId : ''

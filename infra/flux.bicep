@@ -21,6 +21,9 @@ param repoBranch string = 'main'
 @description('Profile path segment under software/stacks/osdu/profiles (e.g., "core").')
 param profile string = 'core'
 
+@description('Ingress mode path segment under software/stacks/osdu/ingress (azure, dns, or ip).')
+param ingressMode string = 'azure'
+
 @description('Name of the fluxConfigurations resource on the cluster.')
 param configurationName string = 'osdu-spi-stack-system'
 
@@ -61,6 +64,12 @@ resource gitopsConfig 'Microsoft.KubernetesConfiguration/fluxConfigurations@2024
     kustomizations: {
       stack: {
         path: './software/stacks/osdu/profiles/${profile}'
+        prune: true
+        syncIntervalInSeconds: 600
+        timeoutInSeconds: 1800
+      }
+      ingress: {
+        path: './software/stacks/osdu/ingress/${ingressMode}'
         prune: true
         syncIntervalInSeconds: 600
         timeoutInSeconds: 1800
