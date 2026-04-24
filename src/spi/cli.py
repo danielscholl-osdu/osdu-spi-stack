@@ -217,7 +217,11 @@ def up(
             )
         else:
             _show_next_steps(config)
-            console.print("\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]\n")
+            console.print("\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]")
+            console.print(
+                "[dim]Environment is pinned to the current commit. "
+                "Run 'spi reconcile' to pull updates when ready.[/dim]\n"
+            )
     except Exception as e:
         console.print(f"\n[error]Deployment failed: {e}[/error]")
         raise typer.Exit(code=1)

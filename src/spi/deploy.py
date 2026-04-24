@@ -20,6 +20,7 @@ Workload Identity SAs, in-cluster seed secrets), activates GitOps via Flux,
 and writes the KV runtime secrets that OSDU services read at startup.
 """
 
+import subprocess
 import time
 
 import typer
@@ -43,6 +44,8 @@ from .paths import REPO_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
 from .shell import kubectl_apply_yaml, run_command
 from .templates import osdu_config_configmap, workload_identity_sa
+
+GITREPO_NAME = "osdu-spi-stack-system"
 
 INFRA_FLUX_BICEP = REPO_ROOT / "infra" / "flux.bicep"
 
@@ -122,6 +125,52 @@ def _write_keyvault_bootstrap_secrets(
     display_result(f"{len(secrets_to_write)} Key Vault secrets written")
 
 
+def _pin_gitops_source() -> None:
+    """Suspend the GitRepository so future commits don't auto-roll (ADR-014).
+
+    Waits up to 120s for the source-controller to publish its first artifact,
+    then patches ``spec.suspend: true``. The wait is non-fatal: on timeout we
+    warn and suspend anyway. Downstream Kustomizations/HelmReleases keep
+    reconciling from the cached artifact.
+    """
+    console.print("\n[bold]Pinning environment to deploy commit...[/bold]")
+
+    wait_result = subprocess.run(
+        [
+            "kubectl", "wait",
+            "--for=condition=Ready",
+            f"gitrepository/{GITREPO_NAME}",
+            "-n", "flux-system",
+            "--timeout=120s",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdin=subprocess.DEVNULL,
+    )
+    if wait_result.returncode != 0:
+        console.print(
+            "  [warning]GitRepository did not become Ready within 120s; "
+            "suspending anyway. Run 'spi reconcile' if reconciliation stalls.[/warning]"
+        )
+
+    run_command(
+        [
+            "kubectl", "patch", "gitrepository", GITREPO_NAME,
+            "-n", "flux-system",
+            "--type=merge",
+            "-p", '{"spec":{"suspend":true}}',
+        ],
+        description="Suspend GitRepository (pin to deploy commit)",
+        check=False,
+    )
+    display_result(
+        "GitRepository pinned. Run 'spi reconcile' to pull updates, "
+        "or 'spi reconcile --resume' to enable auto-reconciliation."
+    )
+
+
 def deploy_azure(config: Config, dry_run: bool = False) -> None:
     """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps.
 
@@ -191,6 +240,11 @@ def deploy_azure(config: Config, dry_run: bool = False) -> None:
         elastic_password=seed["elastic_password"],
         redis_password=seed["redis_password"],
     )
+
+    # Phase 7: Pin the environment to the deploy commit (ADR-014).
+    # Future commits to the tracked branch won't auto-reconcile until the
+    # user runs 'spi reconcile' or 'spi reconcile --resume'.
+    _pin_gitops_source()
 
 
 def cleanup_azure(config: Config) -> None:
