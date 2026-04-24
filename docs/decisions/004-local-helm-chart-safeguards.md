@@ -1,34 +1,29 @@
 # ADR-004: Local Helm Chart for Safeguards Compliance
 
-**Status:** Accepted
+**Status**: Accepted
 
 ## Context
 
-AKS Automatic enforces Deployment Safeguards via non-bypassable `ValidatingAdmissionPolicy`. Every pod must meet strict security requirements:
+ADR-002's choice of AKS Automatic means every pod must pass a non-bypassable `ValidatingAdmissionPolicy`: non-root, seccomp `RuntimeDefault`, all capabilities dropped, `allowPrivilegeEscalation: false`, resource requests and limits set, liveness and readiness probes declared.
 
-- `runAsNonRoot: true`
-- `seccompProfile.type: RuntimeDefault`
-- `capabilities.drop: [ALL]`
-- `allowPrivilegeEscalation: false`
-- Resource requests and limits defined
-- Liveness and readiness probes defined
-
-The OSDU community Helm charts (OCI registry) do not include these security contexts. Patching them at deploy time with kustomize postrender is fragile and error-prone.
+Upstream OSDU community Helm charts published to the OCI registry do not set these security contexts. Patching them at deploy time via `kustomize postrender` or HelmRelease `postRenderers` is brittle: it couples our deploy pipeline to each chart's template layout and breaks silently on chart upgrades.
 
 ## Decision
 
-Maintain a single local Helm chart (`software/charts/osdu-spi-service/`) that bakes Safeguards compliance into its templates. All OSDU services use this chart via Flux HelmRelease with per-service values overrides.
+Ship one local Helm chart (`software/charts/osdu-spi-service/`) that every OSDU service HelmRelease consumes. The chart bakes Safeguards compliance into its templates at authoring time; per-service HelmReleases supply only image, env, and resource overrides.
 
-The chart template includes:
-- Pod-level: `runAsNonRoot`, `seccompProfile`, topology spread constraints
-- Container-level: `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `runAsUser: 1000`
-- Init containers for TLS CA import (Elasticsearch, Redis) with same security context
-- Configurable probes, resources, env vars, volumes
+Baked into the chart:
+
+- Pod-level `securityContext`: `runAsNonRoot`, `seccompProfile.type: RuntimeDefault`, topology spread constraints.
+- Container-level `securityContext`: `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `runAsUser: 1000`.
+- Init containers (CA truststore build, schema fetch) inherit the same security context.
+- Required probes, resources, and env plumbing.
+
+Rejected: reuse upstream community charts and patch at render time. The failure mode (a chart bump silently drops compliance) is worse than the cost of one local chart.
 
 ## Consequences
 
-- Compliance is guaranteed at authoring time; no runtime patching needed.
-- One chart for all services; per-service differences are in HelmRelease values.
-- Chart updates affect all services simultaneously (manageable, since the chart is simple).
-- Init containers (CA cert import) also comply with Safeguards.
-- Upstream OSDU chart changes do not affect deployments; only image tags change.
+- Compliance is guaranteed at authoring time. Admission rejections during reconcile are a drift bug in our chart, not a surprise from upstream.
+- One chart covers all OSDU services; per-service differences live in HelmRelease `values`.
+- Upstream chart changes do not affect our deployments. We follow upstream image tags (resolved by `scripts/resolve-image-tags.py`), not chart versions.
+- A chart change is a cross-cutting change; reviews must weigh the blast radius across every service HelmRelease.

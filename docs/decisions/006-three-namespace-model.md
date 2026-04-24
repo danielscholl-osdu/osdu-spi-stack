@@ -1,29 +1,30 @@
 # ADR-006: Three-Namespace Model
 
-**Status:** Accepted
+**Status**: Accepted
 
 ## Context
 
-Workloads need isolation boundaries for security, resource management, and Istio sidecar injection configuration. A four-namespace model (foundation, istio-system, platform, osdu) is common, but with AKS Automatic managing Istio, the istio-system namespace is handled by Azure.
+Workloads need isolation boundaries for ownership, Istio sidecar injection, and resource policy. A common pattern is four namespaces (`foundation`, `istio-system`, `platform`, `osdu`), but AKS Automatic's managed Istio owns `aks-istio-system` and `aks-istio-ingress` itself.
 
 ## Decision
 
-Use three application namespaces:
+The SPI Stack creates and reconciles three application namespaces:
 
-| Namespace | Purpose | Istio Injection | Contents |
-|-----------|---------|-----------------|----------|
-| `foundation` | Cluster operators | No | ECK, CNPG, cert-manager |
-| `platform` | Stateful middleware | Yes | Elasticsearch, Redis, PostgreSQL, Airflow |
-| `osdu` | OSDU microservices | Yes | All OSDU services, osdu-config, workload-identity-sa |
+| Namespace | Purpose | Istio injection | Contents |
+|---|---|---|---|
+| `foundation` | Cluster operators | No | ECK, CNPG, cert-manager, trust-manager |
+| `platform` | Stateful middleware and ingress | No | Elasticsearch, Redis, PostgreSQL, Airflow, Istio Gateway |
+| `osdu` | OSDU services | Yes (`istio.io/rev`) | OSDU services, schema-load Job, `osdu-config` ConfigMap, `workload-identity-sa` |
 
-The `flux-system` namespace is managed by the AKS GitOps extension and hosts all Flux resources (GitRepository, Kustomizations, HelmReleases).
+`flux-system` is owned by the AKS Flux extension (ADR-009). `aks-istio-system` and `aks-istio-ingress` are owned by AKS.
 
-The `aks-istio-ingress` namespace is managed by AKS and hosts the Istio ingress gateway.
+Only `osdu` carries the Istio sidecar injection label. `platform` is intentionally out of the mesh: `istio-init` requires `NET_ADMIN`, which Safeguards rejects, and the middleware components already terminate their own TLS where required.
+
+Rejected: collapse `foundation` into `platform` to save one namespace. Operators and their managed workloads should not share a namespace; a bad operator upgrade should not take out its managed cluster in the same blast radius.
 
 ## Consequences
 
-- Clear ownership boundaries; operators never share a namespace with the workloads they manage.
-- Istio injection is namespace-scoped; only `platform` and `osdu` get sidecars.
-- Foundation pods (operators) run without sidecars, avoiding chicken-and-egg problems during operator startup.
-- Resource quotas and network policies can be applied per namespace.
-- Cross-namespace service access requires FQDN (e.g., `redis-master.platform.svc.cluster.local`).
+- Clear ownership boundaries: `foundation` is infrastructure operators, `platform` is middleware tenants, `osdu` is the product.
+- Cross-namespace CA material is distributed deliberately (ADR-011), not ambient.
+- Resource quotas and NetworkPolicies can be scoped per namespace without accidentally catching operator workloads.
+- `osdu-config` and in-cluster secrets sit in `osdu`, not `flux-system`; HelmReleases reference them by namespace.

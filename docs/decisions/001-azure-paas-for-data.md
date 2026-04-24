@@ -1,32 +1,32 @@
-# ADR-001: Azure PaaS for Data Services
+# ADR-001: Azure PaaS for OSDU Data Services
 
-**Status:** Accepted
+**Status**: Accepted
 
 ## Context
 
-OSDU services require persistent storage, messaging, and secret management. A cloud-agnostic approach runs all middleware in-cluster (PostgreSQL, RabbitMQ, MinIO, Keycloak) for portability. The SPI Stack targets Azure exclusively and can leverage managed services.
+OSDU services need persistent document, graph, and object storage; asynchronous messaging; centralized secret management; and an identity provider. A cloud-agnostic stack runs all of these in-cluster (PostgreSQL, Keycloak, RabbitMQ, MinIO, Kubernetes Secrets). Each adds operational surface: backup, upgrade, monitoring, capacity planning.
 
-Running stateful middleware in-cluster requires significant operational overhead: backup strategies, upgrade paths, monitoring, and capacity planning. Azure PaaS services handle these concerns with SLAs.
+OSDU's upstream Azure provider modules are already written against Azure Cosmos DB, Service Bus, Storage, Key Vault, and Entra ID. Pointing them at those services is a configuration choice, not a rewrite.
 
 ## Decision
 
-Use Azure PaaS for all data services that have managed equivalents:
+Use Azure PaaS for every data service with a managed equivalent, and leave the SPI Stack explicitly Azure-only:
 
-| Data Need | In-Cluster | Azure PaaS (SPI) |
-|-----------|-------------------|-------------------|
-| Document store | PostgreSQL | CosmosDB SQL |
-| Graph store | PostgreSQL | CosmosDB Gremlin |
-| Messaging | RabbitMQ | Service Bus |
-| Object storage | MinIO | Azure Storage |
-| Secrets | Kubernetes Secrets | Azure Key Vault |
-| Authentication | Keycloak | Azure Entra ID |
+| Concern | In-cluster equivalent | Azure PaaS (SPI Stack) |
+|---|---|---|
+| Document store | PostgreSQL | Cosmos DB SQL (per partition) |
+| Graph store | PostgreSQL | Cosmos DB Gremlin (shared) |
+| Messaging | RabbitMQ | Service Bus (per partition, 14 topics) |
+| Object storage | MinIO | Azure Storage (common + per partition) |
+| Secret store | Kubernetes Secrets | Azure Key Vault |
+| Identity | Keycloak | Azure Entra ID |
 
-Retain in-cluster components only where no managed equivalent exists or where latency requirements demand co-location: Elasticsearch (search/indexing), Redis (caching), PostgreSQL (Airflow metadata only).
+Rejected: run the same workloads in-cluster for portability. The SPI Stack targets Azure-specific OSDU provider code; portability is not a goal.
 
 ## Consequences
 
-- Eliminates operational burden for five stateful systems.
-- Reduces in-cluster resource consumption; Karpenter provisions fewer nodes.
-- Locks the stack to Azure; no multi-cloud portability.
-- Requires Workload Identity and RBAC configuration for each PaaS resource.
-- CLI must provision Azure resources before Kubernetes workloads can start.
+- Five stateful systems leave the cluster. Karpenter provisions fewer nodes; no in-cluster backup or upgrade strategy is needed for them.
+- The stack is locked to Azure. A different cloud is a fork, not a flag.
+- Every PaaS resource is reached via Workload Identity (ADR-005); no connection strings land as Kubernetes Secrets.
+- The CLI must provision these resources before Flux can reconcile the services that depend on them (ADR-008, ADR-009).
+- A small in-cluster middleware surface remains (Elasticsearch, Redis, PostgreSQL for Airflow); its scope is the subject of ADR-003.

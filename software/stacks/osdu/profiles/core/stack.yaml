@@ -312,7 +312,7 @@ spec:
     name: osdu-spi-stack-system
   path: ./software/stacks/osdu/services
   prune: true
-  wait: false
+  wait: true
   timeout: 30m
 
 ---
@@ -366,5 +366,5 @@ spec:
     name: osdu-spi-stack-system
   path: ./software/stacks/osdu/services-reference
   prune: true
-  wait: false
+  wait: true
   timeout: 30m

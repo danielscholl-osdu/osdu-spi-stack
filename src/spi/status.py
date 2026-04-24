@@ -39,19 +39,30 @@ def status_icon(ready: bool, message: str = "") -> Text:
 def age_str(timestamp: str) -> str:
     if not timestamp:
         return ""
+    seconds = age_seconds(timestamp)
+    if seconds is None:
+        return ""
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+    return f"{seconds // 86400}d{(seconds % 86400) // 3600}h"
+
+
+def age_seconds(timestamp: str) -> Optional[int]:
+    if not timestamp:
+        return None
     try:
         ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        delta = datetime.now(timezone.utc) - ts
-        seconds = int(delta.total_seconds())
-        if seconds < 60:
-            return f"{seconds}s"
-        if seconds < 3600:
-            return f"{seconds // 60}m"
-        if seconds < 86400:
-            return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
-        return f"{seconds // 86400}d{(seconds % 86400) // 3600}h"
+        return int((datetime.now(timezone.utc) - ts).total_seconds())
     except Exception:
-        return ""
+        return None
+
+
+STUCK_PHASES = {"Pending", "ContainerCreating", "PodInitializing"}
+STUCK_THRESHOLD_SECONDS = 300
 
 
 def _duration(start: str, end: str) -> str:
@@ -299,23 +310,25 @@ def get_pod_table(namespace: str, title: str) -> Table:
                 pod_status = waiting.get("reason", pod_status)
                 break
 
+        created = meta.get("creationTimestamp", "")
+        is_terminating = meta.get("deletionTimestamp") is not None
+
         if pod_status in ("Completed", "Succeeded"):
             style = "ready"
         elif pod_status == "Running" and ready_count == total_count and total_count > 0:
             style = "ready"
-        elif pod_status in (
-            "Running",
-            "Pending",
-            "ContainerCreating",
-            "Init:0/1",
-            "PodInitializing",
-        ):
+        elif pod_status in STUCK_PHASES or pod_status.startswith("Init:"):
+            age = age_seconds(created) or 0
+            if not is_terminating and age > STUCK_THRESHOLD_SECONDS:
+                style = "failed"
+            else:
+                style = "notready"
+        elif pod_status == "Running":
             style = "notready"
         else:
             style = "failed"
 
         restarts = sum(cs.get("restartCount", 0) for cs in container_statuses)
-        created = meta.get("creationTimestamp", "")
 
         table.add_row(
             name, image, ready_str, Text(pod_status, style=style), str(restarts), age_str(created)

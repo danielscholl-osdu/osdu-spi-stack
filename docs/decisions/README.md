@@ -2,57 +2,57 @@
 
 An Architectural Decision (AD) is a justified software design choice that addresses a functional or non-functional requirement that is architecturally significant. An Architectural Decision Record (ADR) captures a single AD and its rationale.
 
-For more information [see](https://adr.github.io/)
-
-> **Looking for "how does this actually work" instead of "why did we choose this"?**
-> ADRs are immutable decision records frozen at the moment of acceptance. For living
-> narratives and diagrams that explain how subsystems work day-to-day, see
-> [`docs/design/`](../design/). Each design doc links back to the relevant ADRs.
+For more information [see](https://adr.github.io/).
 
 ## How to Create an ADR
 
-1. Copy `adr-template.md` to `NNNN-title-with-dashes.md`, where NNNN indicates the next number in sequence.
-   - Check for existing PR's to make sure you use the correct sequence number.
-   - There is also a short form template `adr-short-template.md` for smaller decisions.
+1. Copy `adr-template.md` to `NNNN-title-with-dashes.md`, where NNNN is the next number in sequence.
+   - Check for existing PRs so you do not collide on a number.
+   - There is also a short-form template `adr-short-template.md` for smaller decisions.
 2. Edit `NNNN-title-with-dashes.md`.
-   - Status must initially be `proposed`
-   - List `deciders` who will sign off on the decision
-   - List people who were `consulted` or `informed` about the decision
-3. For each option, list the good, neutral, and bad aspects of each considered alternative.
-4. Share your PR with the deciders and other interested parties.
-   - The status must be updated to `accepted` once a decision is agreed and the date must also be updated.
-5. Decisions can be changed later and superseded by a new ADR.
+   - Status starts as `proposed`.
+3. For each considered option, write one line on why it was rejected. The decision is what was chosen; alternatives get just enough space to show the trade-off.
+4. Open a PR. The status moves to `accepted` once the decision is agreed.
+5. Decisions can be changed later. A new ADR supersedes an old one; do not edit accepted ADRs in place.
 
 ## ADR Style
 
 ADRs record decisions, not engineering logs. Keep them short and forward-facing so a reader can grok the decision in a single pass.
 
-- **No `## Validation` sections.** Dated phase-by-phase acceptance logs ("Phase 1 diagnosis...", "Correction to Phase 1...", "23/25 Kustomizations Ready on 2026-04-19") belong in the commit message, the PR description, or a design doc under `docs/design/`. Future readers reproduce validation from the code, not from the ADR.
-- **No post-acceptance `## Amendment` sections.** If a decision needs revising after acceptance, write a new ADR that supersedes it (per step 5 above). Inline amendments re-open a record that should be closed.
-- **No incident narrative in Context.** State the structural problem the decision addresses. Specific clusters, timeout values, and triggering incidents are useful in the PR that introduces the ADR but age poorly inside the ADR itself.
-- **One-line option rejections.** In Considered Options, write "Rejected: \<one clause\>" rather than paragraphs re-litigating prior attempts. The decision is what was chosen; rejected alternatives get just enough to show the trade-off.
-- **Forward-looking, not retrospective.** "Supersedes X because..." is fine; "The previous version of this ADR proposed..." is a sign the ADR should be superseded rather than edited in place.
-
+- **No `## Validation` sections.** Phase-by-phase acceptance logs belong in the PR description, not in the ADR.
+- **No post-acceptance `## Amendment` sections.** If a decision needs revising, write a new ADR that supersedes it. Inline amendments re-open a record that should be closed.
+- **No incident narrative in Context.** State the structural problem the decision addresses. Specific clusters, timeout values, and triggering incidents age poorly inside the ADR.
+- **One-line option rejections.** Write "Rejected: <one clause>" rather than paragraphs re-litigating prior attempts.
+- **Forward-looking, not retrospective.** "Supersedes X because..." is fine; "The previous version of this ADR proposed..." is a sign the ADR should be superseded rather than edited.
 
 ## When to Create an ADR
 
-Create ADRs for:
+Create an ADR for any decision that could plausibly have gone a different way and where the alternative would be defensible:
 
-- Architecture patterns (deployment strategies, dependency management, GitOps workflows)
-- Technology choices (middleware selection, Kubernetes operators, CLI frameworks)
-- Design patterns (namespace models, credential management, ingress strategies)
-- Infrastructure decisions (provider abstraction, resource allocation, caching)
-- Configuration strategies (profile-based deployment, ConfigMap patterns)
-- Security decisions (credential handling, certificate management)
-
-**Rule of thumb**: If the decision could be made differently and the alternative would be reasonable, document it with an ADR.
+- Architecture patterns (deployment strategies, dependency ordering, GitOps boundaries).
+- Technology choices (middleware selection, operators, provisioning tools).
+- Design patterns (namespace model, credential handling, ingress strategy).
+- Security posture (identity model, certificate distribution, admission policy).
 
 ## Templates
 
-- **Full Template**: [`adr-template.md`](./adr-template.md) - Comprehensive template with all sections
-- **Short Template**: [`adr-short-template.md`](./adr-short-template.md) - Simplified template for smaller decisions
+- **Full template**: [`adr-template.md`](./adr-template.md)
+- **Short template**: [`adr-short-template.md`](./adr-short-template.md)
 
 ## ADR Index
 
 | ADR | Title | Status |
 |-----|-------|--------|
+| [001](001-azure-paas-for-data.md) | Azure PaaS for OSDU Data Services | Accepted |
+| [002](002-aks-automatic.md) | AKS Automatic as Compute Substrate | Accepted |
+| [003](003-in-cluster-middleware-scope.md) | In-Cluster Middleware Scope | Accepted |
+| [004](004-local-helm-chart-safeguards.md) | Local Helm Chart for Safeguards Compliance | Accepted |
+| [005](005-workload-identity.md) | Workload Identity for Azure PaaS Access | Accepted |
+| [006](006-three-namespace-model.md) | Three-Namespace Model | Accepted |
+| [007](007-layered-kustomization-ordering.md) | Layered Flux Kustomization Ordering | Accepted |
+| [008](008-bicep-for-azure-provisioning.md) | Bicep for Azure Provisioning (AVM for AKS) | Accepted |
+| [009](009-flux-cd-for-gitops.md) | Flux CD + AKS GitOps Extension | Accepted |
+| [010](010-keyvault-secret-management.md) | Key Vault + ConfigMap Secret Model | Accepted |
+| [011](011-trust-manager-ca-distribution.md) | Cross-Namespace CA Distribution via trust-manager | Accepted |
+| [012](012-ingress-profiles.md) | Three Ingress Profiles (azure, dns, ip) | Accepted |
+| [013](013-schema-load-flux-job.md) | Schema Load via a Flux-Managed Job | Accepted |

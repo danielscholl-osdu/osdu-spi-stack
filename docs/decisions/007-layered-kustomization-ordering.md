@@ -1,31 +1,39 @@
-# ADR-007: Layered Kustomization Ordering
+# ADR-007: Layered Flux Kustomization Ordering
 
-**Status:** Accepted
+**Status**: Accepted
 
 ## Context
 
-Kubernetes workloads have hard dependencies on CRDs, operators, and other services. Deploying everything simultaneously causes failures: Elasticsearch CRDs do not exist until ECK is installed, Redis needs cert-manager TLS certificates, Airflow needs its PostgreSQL metadata database.
+A Kubernetes workload graph has hard ordering constraints: CRDs before CRs, operators before instances, cert-manager before certs, middleware before consumers. Applying everything at once surfaces as CrashLoopBackOff and CRD-not-found errors that resolve eventually but obscure real failures.
+
+Flux Kustomizations with explicit `dependsOn` let us encode those constraints once, in Git, where the graph is reviewable.
 
 ## Decision
 
-Define seven Kustomization layers with explicit `dependsOn` relationships:
+The core profile (`software/stacks/osdu/profiles/core/stack.yaml`) defines eight ordered layers plus a schema-load one-shot. Kustomizations within the same layer reconcile in parallel when they have no mutual dependency.
 
-```
-Layer 0: Namespaces
-Layer 1: Operators + cert-manager + Gateway (4 parallel Kustomizations)
-Layer 2: Middleware -- Elasticsearch, Redis, PostgreSQL (3 parallel, each depends on its operator)
-Layer 3: Airflow (depends on PostgreSQL)
-Layer 4: OSDU configuration (depends on Namespaces)
-Layer 5: Core OSDU services (depends on Elasticsearch + Redis + config)
-Layer 6: Reference services (depends on core services)
-```
+| Layer | Kustomization(s) | Depends on |
+|---|---|---|
+| 0a | `spi-namespaces` | none |
+| 0b | `spi-nodepools` | 0a |
+| 1 | `spi-cert-manager`, `spi-trust-manager`, `spi-eck-operator`, `spi-cnpg-operator`, `spi-gateway` | 0a (trust-manager also on cert-manager) |
+| 2 | `spi-elasticsearch`, `spi-redis`, `spi-postgresql` | matching L1 operator + 0b |
+| 3 | `spi-airflow` | `spi-postgresql` |
+| 4a | `spi-osdu-config` | 0a |
+| 4b | `spi-bootstrap` (trust-manager Bundles + Redis DestinationRule, ADR-011) | trust-manager, ES, Redis, osdu-config |
+| 5 | `spi-osdu-services` (core services) | 4b, 0b |
+| 5b | `spi-osdu-schema-load` (one-shot Job, ADR-013) | 5 |
+| 6 | `spi-osdu-reference` (reference services) | 5, 5b |
 
-Layers within the same tier run in parallel when they have no mutual dependencies (e.g., ECK and CNPG operators install concurrently).
+The ingress profile (`software/stacks/osdu/ingress/<mode>/stack.yaml`, ADR-012) attaches additional Kustomizations at Layer 1 (cert issuers, ExternalDNS, TLS overlays) and Layer 6 (HTTPRoutes). The two profiles reconcile independently under one `fluxConfigurations` resource (ADR-009).
+
+All Kustomizations use `wait: true` so each layer's Ready gate reflects actual workload health; per-layer `timeout` is tuned to the slowest workload in that layer (15 min for Elasticsearch and Airflow, 30 min for the OSDU service layers, 35 min for schema-load).
+
+Rejected: one flat Kustomization with an implicit apply order. Apply order in kustomize is not a dependency graph; it gives no ordering guarantees across independent sources.
 
 ## Consequences
 
-- Flux enforces correct ordering; Layer 5 will not start until Layer 2 middleware is healthy.
-- CRD availability is guaranteed before custom resources are applied.
-- Parallel deployment within tiers reduces total deployment time.
-- Adding new middleware requires inserting a new Kustomization at the correct layer.
-- `wait: true` on middleware layers ensures health before proceeding; this can slow deployment if a component is slow to initialize.
+- Later layers start only when earlier layers report `Ready`. Spurious CRD-not-found startup noise is gone.
+- The graph is reviewable in one file and surfaces in `flux get kustomizations` and `spi status`.
+- Adding a new middleware means inserting a Kustomization at the right layer and wiring `dependsOn`; the cost is one file and one edit to the profile `stack.yaml`.
+- `wait: true` on middleware layers is a trade-off: a slow-starting operator delays everything behind it. Timeouts are tuned per layer.
