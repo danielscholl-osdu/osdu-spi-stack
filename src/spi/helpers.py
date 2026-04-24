@@ -471,3 +471,175 @@ def run_bicep_deployment(
             os.unlink(params_file)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Ingress / DNS helpers
+# ---------------------------------------------------------------------------
+
+ISTIO_INGRESS_NAMESPACE = "aks-istio-ingress"
+ISTIO_INGRESS_SERVICE = "aks-istio-ingressgateway-external"
+
+
+def discover_dns_zone() -> tuple:
+    """Return (zone_name, resource_group) from the current Azure subscription.
+
+    Lists zones; returns the single one if exactly one exists. Raises
+    typer.Exit on zero or multiple (with an instructive message).
+    """
+    result = subprocess.run(
+        ["az", "network", "dns", "zone", "list", "-o", "json"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        console.print(
+            "[error]Failed to list DNS zones. "
+            "Check that 'az login' is current and you have reader rights.[/error]"
+        )
+        raise typer.Exit(code=1)
+    try:
+        zones = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        zones = []
+
+    if not zones:
+        console.print(
+            "[error]No Azure DNS zones found in the current subscription.[/error]\n"
+            "[info]Create a zone, or re-run with --ingress-mode azure to use "
+            "the auto-FQDN mode (no DNS zone required).[/info]"
+        )
+        raise typer.Exit(code=1)
+    if len(zones) > 1:
+        names = ", ".join(z.get("name", "?") for z in zones)
+        console.print(
+            f"[error]Multiple DNS zones found in current subscription: {names}[/error]\n"
+            "[info]Pass --dns-zone <name> to pick one.[/info]"
+        )
+        raise typer.Exit(code=1)
+    return zones[0]["name"], zones[0]["resourceGroup"]
+
+
+def patch_ingress_dns_label(dns_label: str) -> None:
+    """Annotate the AKS-managed Istio ingress Service with a DNS label.
+
+    Azure assigns <label>.<region>.cloudapp.azure.com to the backing PIP
+    once the annotation is set. Idempotent; re-running with the same label
+    is a no-op.
+    """
+    console.print(
+        f"\n[bold]Setting Azure DNS label on Istio ingress: "
+        f"[azure]{dns_label}[/azure][/bold]"
+    )
+    run_command(
+        ["kubectl", "-n", ISTIO_INGRESS_NAMESPACE, "annotate",
+         "svc", ISTIO_INGRESS_SERVICE,
+         f"service.beta.kubernetes.io/azure-dns-label-name={dns_label}",
+         "--overwrite"],
+        description="Annotate Istio LB with azure-dns-label-name",
+    )
+
+
+def resolve_ingress_fqdn(timeout_seconds: int = 180) -> str:
+    """Block until the Istio LB Service reports its FQDN in status.
+
+    Poll status.loadBalancer.ingress[0].hostname; returns the string
+    when populated. Raises on timeout.
+    """
+    deadline = time.time() + timeout_seconds
+    with console.status("[bold]Waiting for Azure DNS label propagation...[/bold]"):
+        while time.time() < deadline:
+            result = subprocess.run(
+                ["kubectl", "-n", ISTIO_INGRESS_NAMESPACE, "get", "svc",
+                 ISTIO_INGRESS_SERVICE, "-o", "json"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0 and result.stdout:
+                try:
+                    svc = json.loads(result.stdout)
+                    ingresses = svc.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+                    if ingresses:
+                        hostname = ingresses[0].get("hostname", "")
+                        if hostname:
+                            display_result(f"Ingress FQDN: {hostname}")
+                            return hostname
+                except json.JSONDecodeError:
+                    pass
+            time.sleep(5)
+    raise RuntimeError(
+        f"Istio ingress LB did not report an FQDN within {timeout_seconds}s. "
+        "Verify the az-dns-label-name annotation was accepted by Azure."
+    )
+
+
+def get_ingress_ip() -> str:
+    """Return the current IP of the Istio ingress LB. Empty string if unresolved."""
+    result = subprocess.run(
+        ["kubectl", "-n", ISTIO_INGRESS_NAMESPACE, "get", "svc",
+         ISTIO_INGRESS_SERVICE, "-o", "json"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return ""
+    try:
+        svc = json.loads(result.stdout)
+        ingresses = svc.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+        if ingresses:
+            return ingresses[0].get("ip", "") or ingresses[0].get("hostname", "")
+    except json.JSONDecodeError:
+        pass
+    return ""
+
+
+def create_ingress_config(config, external_dns_client_id: str,
+                          tenant_id: str, gateway_ip: str) -> None:
+    """Write the spi-ingress-config ConfigMap in flux-system.
+
+    The ConfigMap is consumed by Flux Kustomizations in the
+    software/stacks/osdu/ingress/<mode>/ profile via postBuild substituteFrom.
+    Keys vary by ingress mode; irrelevant keys are omitted to keep the
+    ConfigMap self-documenting.
+    """
+    from .config import IngressMode
+
+    prefix = config.resolved_ingress_prefix
+    data = {
+        "INGRESS_MODE": config.ingress_mode.value,
+        "GATEWAY_IP": gateway_ip or "",
+        "TXT_OWNER_ID": config.cluster_name,
+        "AZURE_TENANT_ID": tenant_id or "",
+    }
+
+    if config.ingress_mode == IngressMode.AZURE:
+        data["INGRESS_FQDN"] = config.ingress_fqdn
+        data["ACME_EMAIL"] = (
+            config.acme_email or f"admin@{config.ingress_fqdn}"
+        )
+    elif config.ingress_mode == IngressMode.DNS:
+        data["DNS_ZONE"] = config.dns_zone
+        data["DNS_ZONE_RG"] = config.dns_zone_rg
+        data["INGRESS_PREFIX"] = prefix
+        data["EXTERNAL_DNS_CLIENT_ID"] = external_dns_client_id or ""
+        data["ACME_EMAIL"] = config.acme_email or f"admin@{config.dns_zone}"
+        data["INGRESS_HOST_OSDU"] = f"{prefix}.{config.dns_zone}"
+        data["INGRESS_HOST_KIBANA"] = f"{prefix}-kibana.{config.dns_zone}"
+        data["INGRESS_HOST_AIRFLOW"] = f"{prefix}-airflow.{config.dns_zone}"
+    # IP mode: only the four base keys above; no hostnames, no ACME.
+
+    yaml_lines = [
+        "apiVersion: v1",
+        "kind: ConfigMap",
+        "metadata:",
+        "  name: spi-ingress-config",
+        "  namespace: flux-system",
+        "  labels:",
+        "    app.kubernetes.io/managed-by: osdu-spi-stack",
+        "data:",
+    ]
+    for key, value in sorted(data.items()):
+        # Quote values that might look YAML-special (spaces, colons, etc).
+        yaml_lines.append(f'  {key}: "{value}"')
+    yaml_content = "\n".join(yaml_lines) + "\n"
+
+    display_yaml(yaml_content, "ConfigMap: spi-ingress-config")
+    kubectl_apply_yaml(yaml_content, "apply spi-ingress-config ConfigMap")
+    display_result("spi-ingress-config ConfigMap created")

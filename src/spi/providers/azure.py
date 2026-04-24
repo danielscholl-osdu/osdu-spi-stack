@@ -19,11 +19,13 @@ from pathlib import Path
 
 import typer
 
-from ..config import Config
+from ..config import Config, IngressMode
 from ..helpers import (
     console, run_command, display_result, run_bicep_deployment,
     create_storage_classes, ensure_namespaces,
     install_gateway_api_crds, kubectl_apply_yaml, display_yaml,
+    discover_dns_zone, patch_ingress_dns_label, resolve_ingress_fqdn,
+    get_ingress_ip, create_ingress_config,
 )
 from ..secrets import ensure_secrets, get_or_create_seed
 from ..azure_infra import provision_azure_infra
@@ -66,6 +68,29 @@ def _create_osdu_config(config: Config, infra_outputs: dict):
     display_result("Workload Identity ServiceAccounts created")
 
 
+def _resolve_ingress_inputs(config: Config) -> None:
+    """Resolve ingress-mode-specific inputs that require a live AKS cluster.
+
+    Mutates ``config`` in place:
+      - azure mode: patches the Istio ingress LB with azure-dns-label-name
+        and waits for Azure to publish the FQDN (status.loadBalancer.
+        ingress[0].hostname). Stores on ``config.ingress_fqdn``.
+      - dns mode:   if ``config.dns_zone`` is empty, auto-discovers a single
+        DNS zone in the current subscription and populates
+        ``config.dns_zone`` + ``config.dns_zone_rg``.
+      - ip mode:    no-op.
+    """
+    if config.ingress_mode == IngressMode.AZURE:
+        patch_ingress_dns_label(config.dns_label)
+        config.ingress_fqdn = resolve_ingress_fqdn()
+    elif config.ingress_mode == IngressMode.DNS:
+        if not config.dns_zone:
+            zone, rg = discover_dns_zone()
+            config.dns_zone = zone
+            config.dns_zone_rg = rg
+            display_result(f"Using DNS zone: {zone} (rg: {rg})")
+
+
 def deploy_azure(config: Config, dry_run: bool = False):
     """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps.
 
@@ -73,6 +98,14 @@ def deploy_azure(config: Config, dry_run: bool = False):
     Kubernetes bootstrap phase, and GitOps activation are skipped so the
     caller can inspect what would change without actually provisioning.
     """
+    # For dns mode we need to resolve the DNS zone BEFORE running main.bicep
+    # so the conditional external-dns-identity + DNS Zone Contributor role
+    # modules get the right scope + name.
+    if not dry_run and config.ingress_mode == IngressMode.DNS and not config.dns_zone:
+        zone, rg = discover_dns_zone()
+        config.dns_zone = zone
+        config.dns_zone_rg = rg
+
     # Phase 1-3: Azure infrastructure
     infra_outputs = provision_azure_infra(config, dry_run=dry_run)
 
@@ -86,6 +119,15 @@ def deploy_azure(config: Config, dry_run: bool = False):
     install_gateway_api_crds()
     _create_osdu_config(config, infra_outputs)
 
+    # Phase 4b: Ingress mode resolution (requires live cluster + Istio LB)
+    _resolve_ingress_inputs(config)
+    create_ingress_config(
+        config=config,
+        external_dns_client_id=infra_outputs.get("external_dns_client_id", ""),
+        tenant_id=infra_outputs.get("tenant_id", ""),
+        gateway_ip=get_ingress_ip(),
+    )
+
     # Phase 5: GitOps activation (Flux extension + Kustomization via Bicep)
     console.print("\n[bold]Deploying Flux extension and GitOps config via Bicep...[/bold]")
     run_bicep_deployment(
@@ -95,11 +137,15 @@ def deploy_azure(config: Config, dry_run: bool = False):
             "repoUrl": config.repo_url,
             "repoBranch": config.repo_branch,
             "profile": config.profile.value,
+            "ingressMode": config.ingress_mode.value,
         },
         resource_group=config.resource_group,
         deployment_name=f"spi-flux-{config.env or 'base'}",
     )
-    display_result(f"GitOps activated for profile: {config.profile.value}")
+    display_result(
+        f"GitOps activated for profile: {config.profile.value}, "
+        f"ingress: {config.ingress_mode.value}"
+    )
 
     # Phase 6: Non-blocking runtime writes.
     # Cross-namespace CA copies and the Redis Istio DestinationRule moved

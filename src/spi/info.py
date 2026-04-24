@@ -12,8 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cluster access information and endpoint display."""
+"""Cluster access information and endpoint display.
 
+Reads the `spi-ingress-config` ConfigMap written by the CLI at bootstrap
+and renders the right base URL / middleware UI table per ingress mode:
+
+  - ip:    http://<gateway-ip>/api/...                   (no middleware UIs)
+  - azure: https://<auto-fqdn>/api/...  +  /kibana/  /airflow/
+  - dns:   https://<host-osdu>/api/...  +  <host-kibana>  <host-airflow>
+"""
+
+import base64
 import json
 import subprocess
 
@@ -29,6 +38,23 @@ console = Console(theme=Theme({
     "error": "bold red",
 }))
 
+# OSDU API services exposed via HTTPRoutes. Order preserved for display.
+_OSDU_API_PATHS = [
+    ("partition",       "/api/partition/v1/"),
+    ("entitlements",    "/api/entitlements/v2/"),
+    ("legal",           "/api/legal/v1/"),
+    ("schema",          "/api/schema-service/v1/"),
+    ("storage",         "/api/storage/v2/"),
+    ("search",          "/api/search/v2/"),
+    ("indexer",         "/api/indexer/v2/"),
+    ("indexer-queue",   "/api/indexer-queue/v1/"),
+    ("file",            "/api/file/v2/"),
+    ("workflow",        "/api/workflow/v1/"),
+    ("unit",            "/api/unit/v3/"),
+    ("crs-catalog",     "/api/crs/catalog/v2/"),
+    ("crs-conversion",  "/api/crs/converter/v2/"),
+]
+
 
 def _kubectl_json(args: list):
     result = subprocess.run(
@@ -43,74 +69,112 @@ def _kubectl_json(args: list):
         return None
 
 
-def _get_gateway_ip() -> str:
-    """Try to find the external IP of the Istio ingress gateway."""
-    # AKS managed Istio ingress
+def _secret_value(namespace: str, name: str, key: str) -> str:
+    """Read a base64-decoded value from a k8s Secret. Empty string on error."""
+    data = _kubectl_json(["get", "secret", name, "-n", namespace])
+    if not data:
+        return ""
+    raw = data.get("data", {}).get(key, "")
+    if not raw:
+        return ""
+    try:
+        return base64.b64decode(raw).decode()
+    except (ValueError, UnicodeDecodeError):
+        return ""
+
+
+def _read_ingress_config() -> dict:
+    """Read the CLI-written spi-ingress-config ConfigMap. Empty dict if missing."""
+    data = _kubectl_json(["get", "configmap", "spi-ingress-config", "-n", "flux-system"])
+    if not data:
+        return {}
+    return data.get("data", {}) or {}
+
+
+def _compute_endpoints(cfg: dict) -> tuple:
+    """Return (mode, base_url, endpoints_dict, middleware_dict).
+
+    mode: "ip" | "azure" | "dns"
+    base_url: full URL for the primary host, or "" if not yet known.
+    endpoints_dict: {"partition": "http(s)://...", ...} for all 13 services.
+    middleware_dict: {"Kibana": url, "Airflow": url} — empty in ip mode.
+    """
+    mode = (cfg.get("INGRESS_MODE") or "").lower()
+
+    if mode == "azure":
+        fqdn = cfg.get("INGRESS_FQDN", "")
+        base = f"https://{fqdn}" if fqdn else ""
+        endpoints = {svc: f"{base}{path}" for svc, path in _OSDU_API_PATHS} if base else {}
+        middleware = {"Kibana": f"{base}/kibana/", "Airflow": f"{base}/airflow/"} if base else {}
+        return mode, base, endpoints, middleware
+
+    if mode == "dns":
+        osdu_host = cfg.get("INGRESS_HOST_OSDU", "")
+        kibana_host = cfg.get("INGRESS_HOST_KIBANA", "")
+        airflow_host = cfg.get("INGRESS_HOST_AIRFLOW", "")
+        base = f"https://{osdu_host}" if osdu_host else ""
+        endpoints = {svc: f"{base}{path}" for svc, path in _OSDU_API_PATHS} if base else {}
+        middleware = {}
+        if kibana_host:
+            middleware["Kibana"] = f"https://{kibana_host}/"
+        if airflow_host:
+            middleware["Airflow"] = f"https://{airflow_host}/"
+        return mode, base, endpoints, middleware
+
+    # Fallback: ip mode or no ConfigMap yet.
+    ip = cfg.get("GATEWAY_IP", "") or _discover_gateway_ip()
+    base = f"http://{ip}" if ip else ""
+    endpoints = {svc: f"{base}{path}" for svc, path in _OSDU_API_PATHS} if base else {}
+    return "ip", base, endpoints, {}
+
+
+def _discover_gateway_ip() -> str:
+    """Fallback: find the Istio ingress LB IP when the ConfigMap is missing."""
     for ns in ["aks-istio-ingress", "istio-system"]:
         data = _kubectl_json(["get", "svc", "-n", ns])
         if not data or "items" not in data:
             continue
         for svc in data["items"]:
-            svc_type = svc.get("spec", {}).get("type", "")
-            if svc_type == "LoadBalancer":
-                ingresses = svc.get("status", {}).get("loadBalancer", {}).get("ingress", [])
-                for ing in ingresses:
-                    ip = ing.get("ip") or ing.get("hostname")
-                    if ip:
-                        return ip
+            if svc.get("spec", {}).get("type") != "LoadBalancer":
+                continue
+            for ing in svc.get("status", {}).get("loadBalancer", {}).get("ingress", []):
+                ip = ing.get("ip") or ing.get("hostname")
+                if ip:
+                    return ip
     return ""
 
 
 def _get_live_credentials() -> dict:
-    """Retrieve live credentials from Kubernetes secrets."""
+    """Retrieve in-cluster credentials for the middleware UIs."""
     creds = {}
-
-    # Elasticsearch
-    es = _kubectl_json(["get", "secret", "elasticsearch-es-elastic-user", "-n", "platform"])
-    if es:
-        raw = es.get("data", {}).get("elastic", "")
-        if raw:
-            import base64
-            creds["elasticsearch_password"] = base64.b64decode(raw).decode()
-
-    # Redis
-    redis = _kubectl_json(["get", "secret", "redis-credentials", "-n", "platform"])
-    if redis:
-        raw = redis.get("data", {}).get("password", "")
-        if raw:
-            import base64
-            creds["redis_password"] = base64.b64decode(raw).decode()
-
+    elastic_pw = _secret_value("platform", "elasticsearch-es-elastic-user", "elastic")
+    if elastic_pw:
+        creds["elastic_user"] = "elastic"
+        creds["elastic_password"] = elastic_pw
+    redis_pw = _secret_value("platform", "redis-credentials", "password")
+    if redis_pw:
+        creds["redis_password"] = redis_pw
+    airflow_pw = _secret_value("platform", "airflow-webserver-credentials", "password")
+    if airflow_pw:
+        creds["airflow_user"] = "admin"
+        creds["airflow_password"] = airflow_pw
     return creds
 
 
 def render_info(show_secrets: bool = False, output_json: bool = False):
-    gateway_ip = _get_gateway_ip()
+    cfg = _read_ingress_config()
+    mode, base, endpoints, middleware = _compute_endpoints(cfg)
 
     info = {
-        "gateway_ip": gateway_ip,
-        "endpoints": {},
-        "internal_services": {},
-    }
-
-    if gateway_ip:
-        base = f"http://{gateway_ip}"
-        info["endpoints"] = {
-            "partition": f"{base}/api/partition/v1/",
-            "entitlements": f"{base}/api/entitlements/v2/",
-            "legal": f"{base}/api/legal/v1/",
-            "schema": f"{base}/api/schema-service/v1/",
-            "storage": f"{base}/api/storage/v2/",
-            "search": f"{base}/api/search/v2/",
-            "file": f"{base}/api/file/",
-            "workflow": f"{base}/api/workflow/",
-        }
-
-    info["internal_services"] = {
-        "elasticsearch": "elasticsearch-es-http.platform.svc:9200",
-        "redis": "redis-master.platform.svc:6380 (TLS)",
-        "postgresql": "postgresql-rw.platform.svc:5432 (Airflow only)",
-        "airflow": "airflow-web.platform.svc:8080",
+        "ingress_mode": mode,
+        "base_url": base,
+        "endpoints": endpoints,
+        "middleware_uis": middleware,
+        "internal_services": {
+            "elasticsearch": "elasticsearch-es-http.platform.svc:9200",
+            "redis": "redis-master.platform.svc:6380 (TLS)",
+            "postgresql": "postgresql-rw.platform.svc:5432 (Airflow only)",
+        },
     }
 
     if show_secrets:
@@ -122,18 +186,29 @@ def render_info(show_secrets: bool = False, output_json: bool = False):
 
     # Human-readable display
     console.print(Panel("[bold]SPI Stack Access Information[/bold]", border_style="cyan"))
-
-    if gateway_ip:
-        console.print(f"\n  [ready]Gateway IP:[/ready] {gateway_ip}")
+    console.print(f"\n  [ready]Ingress mode:[/ready] {mode or 'unknown'}")
+    if base:
+        console.print(f"  [ready]Base URL:    [/ready] {base}")
     else:
-        console.print("\n  [warning]Gateway IP not yet assigned (LoadBalancer pending)[/warning]")
+        console.print(
+            "  [warning]Base URL not yet available — ingress is still "
+            "provisioning. Re-run 'spi info' in a minute.[/warning]"
+        )
 
-    if info["endpoints"]:
+    if endpoints:
         table = Table(title="OSDU API Endpoints", border_style="cyan")
         table.add_column("Service", style="cyan")
         table.add_column("URL", style="green")
-        for svc, url in info["endpoints"].items():
+        for svc, url in endpoints.items():
             table.add_row(svc, url)
+        console.print(table)
+
+    if middleware:
+        table = Table(title="Middleware UIs", border_style="cyan")
+        table.add_column("UI", style="cyan")
+        table.add_column("URL", style="green")
+        for name, url in middleware.items():
+            table.add_row(name, url)
         console.print(table)
 
     table = Table(title="Internal Services", border_style="cyan")
@@ -143,7 +218,7 @@ def render_info(show_secrets: bool = False, output_json: bool = False):
         table.add_row(svc, addr)
     console.print(table)
 
-    if show_secrets and "credentials" in info:
+    if show_secrets and info.get("credentials"):
         table = Table(title="Live Credentials (dev/test only)", border_style="yellow")
         table.add_column("Secret", style="cyan")
         table.add_column("Value", style="yellow")

@@ -312,6 +312,7 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
         "envName": config.env,
         "location": config.location,
         "identityName": config.identity_name,
+        "externalDnsIdentityName": config.external_dns_identity_name,
         "keyVaultName": config.keyvault_name,
         "acrName": config.acr_name,
         "dataPartitions": config.data_partitions,
@@ -328,6 +329,10 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
             _storage_name("osdu" + config.env + p, "") for p in config.data_partitions
         ],
         "oidcIssuerUrl": oidc_issuer,
+        # DNS-mode only; both are empty strings in ip/azure modes and the
+        # conditional modules in main.bicep no-op when dnsZoneName is empty.
+        "dnsZoneName": config.dns_zone,
+        "dnsZoneResourceGroup": config.dns_zone_rg,
     }
 
 
@@ -351,6 +356,9 @@ def _reshape_bicep_outputs(bicep_outputs: Dict[str, Any]) -> Dict[str, Any]:
         "graph_account_id": bicep_outputs.get("graphAccountId", ""),
         "common_storage_name": bicep_outputs.get("commonStorageName", ""),
         "common_storage_id": bicep_outputs.get("commonStorageId", ""),
+        # DNS-mode outputs (empty strings when ingress mode != dns).
+        "external_dns_client_id": bicep_outputs.get("externalDnsClientId", ""),
+        "external_dns_principal_id": bicep_outputs.get("externalDnsPrincipalId", ""),
     }
 
     partition_names = bicep_outputs.get("partitionNames", []) or []

@@ -14,6 +14,7 @@
 
 """SPI CLI - Deploy OSDU SPI Stack on Azure AKS Automatic."""
 
+import os
 import sys
 from typing import Optional, List
 
@@ -21,7 +22,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from .config import Config, Profile
+from .config import Config, IngressMode, Profile
 from .helpers import console, check_prerequisites, run_command, get_suspend_status, verify_spi_cluster
 from .providers import PREREQ_TOOLS
 
@@ -47,8 +48,26 @@ def _show_config(config: Config):
     table.add_row("Branch", config.repo_branch)
     table.add_row("Data Partitions", ", ".join(config.data_partitions))
     table.add_row("Key Vault", config.keyvault_name)
+    table.add_row("Ingress Mode", config.ingress_mode.value)
+    if config.ingress_mode == IngressMode.DNS and config.dns_zone:
+        table.add_row("DNS Zone", f"{config.dns_zone} (rg: {config.dns_zone_rg})")
 
     console.print(table)
+
+
+def _resolve_ingress_mode(cli_flag: Optional[IngressMode]) -> IngressMode:
+    """Resolve the ingress mode. Precedence: --flag > SPI_INGRESS_MODE env > default (azure)."""
+    if cli_flag is not None:
+        return cli_flag
+    env_val = os.environ.get("SPI_INGRESS_MODE", "").strip().lower()
+    if env_val in {m.value for m in IngressMode}:
+        return IngressMode(env_val)
+    if env_val:
+        console.print(
+            f"[warning]Invalid SPI_INGRESS_MODE '{env_val}'; "
+            f"falling back to 'azure'.[/warning]"
+        )
+    return IngressMode.AZURE
 
 
 def _show_next_steps(config: Config):
@@ -75,6 +94,10 @@ def _build_config(
     branch: str = "main",
     location: str = "eastus2",
     data_partitions: Optional[List[str]] = None,
+    ingress_mode: IngressMode = IngressMode.AZURE,
+    dns_zone: str = "",
+    ingress_prefix: str = "",
+    acme_email: str = "",
 ) -> Config:
     return Config.from_env(
         env=env,
@@ -83,6 +106,10 @@ def _build_config(
         repo_branch=branch,
         location=location,
         data_partitions=data_partitions or ["opendes"],
+        ingress_mode=ingress_mode,
+        dns_zone=dns_zone,
+        ingress_prefix=ingress_prefix,
+        acme_email=acme_email,
     )
 
 
@@ -141,6 +168,24 @@ def up(
     location: str = typer.Option("eastus2", "--location", help="Azure region"),
     data_partitions: Optional[List[str]] = typer.Option(
         None, "--partition", help="Data partition names (can specify multiple)"),
+    ingress_mode: Optional[IngressMode] = typer.Option(
+        None, "--ingress-mode",
+        help="Ingress mode: azure (default; auto-FQDN + TLS) or dns (custom zone). "
+             "Also honors SPI_INGRESS_MODE env var.",
+    ),
+    dns_zone: str = typer.Option(
+        "", "--dns-zone",
+        help="Azure DNS zone to use in dns mode. Auto-discovered from the current "
+             "subscription if omitted and exactly one zone exists.",
+    ),
+    ingress_prefix: str = typer.Option(
+        "", "--ingress-prefix",
+        help="Hostname prefix used in dns mode. Defaults to the --env value.",
+    ),
+    acme_email: str = typer.Option(
+        "", "--acme-email",
+        help="Contact email for Let's Encrypt ACME account. Also honors SPI_ACME_EMAIL.",
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run",
         help="Preview Azure PaaS changes via Bicep what-if. Creates the resource group "
@@ -152,10 +197,17 @@ def up(
     if profile is None:
         profile = Profile.CORE
 
+    resolved_mode = _resolve_ingress_mode(ingress_mode)
+    resolved_acme = acme_email or os.environ.get("SPI_ACME_EMAIL", "")
+
     config = _build_config(
         profile=profile, env=env, repo_url=repo_url,
         branch=branch, location=location,
         data_partitions=data_partitions,
+        ingress_mode=resolved_mode,
+        dns_zone=dns_zone,
+        ingress_prefix=ingress_prefix,
+        acme_email=resolved_acme,
     )
     config.verbose = verbose
 

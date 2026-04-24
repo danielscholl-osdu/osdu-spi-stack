@@ -25,6 +25,17 @@ class Profile(str, Enum):
     FULL = "full"
 
 
+class IngressMode(str, Enum):
+    # Auto-FQDN (<label>.<region>.cloudapp.azure.com) + Let's Encrypt TLS.
+    # Default. Zero prerequisites.
+    AZURE = "azure"
+    # Real DNS zone + ExternalDNS + Let's Encrypt TLS. Zone auto-discovered
+    # from the current subscription.
+    DNS = "dns"
+    # Bare IP, HTTP only, no TLS. Hidden fallback for air-gapped debug.
+    IP = "ip"
+
+
 BASE_NAME = "spi-stack"
 
 
@@ -41,8 +52,16 @@ class Config(BaseModel):
     data_partitions: List[str] = ["opendes"]
     # Derived names (set in from_env)
     identity_name: str = ""
+    external_dns_identity_name: str = ""
     keyvault_name: str = ""
     acr_name: str = ""
+    # Ingress / DNS
+    ingress_mode: IngressMode = IngressMode.AZURE
+    dns_zone: str = ""           # dns mode: auto-discovered if empty
+    dns_zone_rg: str = ""        # dns mode: derived from zone lookup
+    ingress_prefix: str = ""     # defaults to env
+    acme_email: str = ""         # defaults to admin@<fqdn>|<zone>
+    ingress_fqdn: str = ""       # azure mode: resolved LB FQDN
     # Output control
     verbose: bool = False
 
@@ -57,12 +76,14 @@ class Config(BaseModel):
         keyvault_name = f"osdu{safe_env}"[:24] if env else "osduspistack"
         acr_name = f"osdu{safe_env}"[:50] if env else "osduspistack"
         identity_name = f"{cluster_name}-osdu-identity"
+        external_dns_identity_name = f"{cluster_name}-external-dns"
 
         return Config(
             env=env,
             cluster_name=cluster_name,
             resource_group=resource_group,
             identity_name=identity_name,
+            external_dns_identity_name=external_dns_identity_name,
             keyvault_name=keyvault_name,
             acr_name=acr_name,
             **kwargs,
@@ -77,3 +98,13 @@ class Config(BaseModel):
     def primary_partition(self) -> str:
         """First data partition hosts the system database."""
         return self.data_partitions[0]
+
+    @property
+    def resolved_ingress_prefix(self) -> str:
+        """DNS-mode hostname prefix. Falls back to env name, then 'spi'."""
+        return self.ingress_prefix or self.env or "spi"
+
+    @property
+    def dns_label(self) -> str:
+        """Azure-mode DNS label. Uses cluster_name (already unique per env)."""
+        return self.cluster_name
