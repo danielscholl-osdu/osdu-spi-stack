@@ -34,7 +34,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
 
 ---
 # ExternalDNS, reading HTTPRoute hostnames and syncing A records to
@@ -59,7 +58,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
 
 ---
 # Kibana serving at root on its own subdomain (no server.basePath).
@@ -102,7 +100,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
 
 ---
 # HTTPRoutes for OSDU APIs + middleware UIs on per-service hostnames.
@@ -129,4 +126,3 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system

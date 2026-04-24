@@ -34,7 +34,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
 
 ---
 # Kibana with server.basePath=/kibana so it can serve from a subpath.
@@ -77,7 +76,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
 
 ---
 # HTTPRoutes for OSDU APIs + middleware UIs on the single FQDN.
@@ -103,4 +101,3 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: spi-ingress-config
-        namespace: flux-system
