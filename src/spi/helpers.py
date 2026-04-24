@@ -519,56 +519,76 @@ def discover_dns_zone() -> tuple:
     return zones[0]["name"], zones[0]["resourceGroup"]
 
 
-def patch_ingress_dns_label(dns_label: str) -> None:
-    """Annotate the AKS-managed Istio ingress Service with a DNS label.
+def _wait_for_lb_ip(timeout_seconds: int = 180) -> str:
+    """Block until the Istio LB Service has an IP in status.loadBalancer.ingress."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        ip = get_ingress_ip()
+        if ip and "." in ip:  # crude IPv4 check
+            return ip
+        time.sleep(5)
+    raise RuntimeError(
+        f"Istio ingress LB did not report an IP within {timeout_seconds}s."
+    )
 
-    Azure assigns <label>.<region>.cloudapp.azure.com to the backing PIP
-    once the annotation is set. Idempotent; re-running with the same label
-    is a no-op.
+
+def set_ingress_dns_label(dns_label: str, location: str) -> str:
+    """Set the DNS label on the Istio ingress LB's backing PIP and return the FQDN.
+
+    AKS Automatic reconciles the managed Istio Service and strips any
+    custom annotations (including service.beta.kubernetes.io/
+    azure-dns-label-name), so we bypass the annotation path entirely:
+
+      1. Wait for the Service to have a LoadBalancer IP.
+      2. Look up the Public IP resource backing that IP via `az`.
+      3. Set its dns-name property (idempotent).
+      4. Return the deterministic FQDN <label>.<location>.cloudapp.azure.com.
+
+    The PIP lives in the AKS node resource group, not the SPI stack RG.
     """
     console.print(
         f"\n[bold]Setting Azure DNS label on Istio ingress: "
         f"[azure]{dns_label}[/azure][/bold]"
     )
-    run_command(
-        ["kubectl", "-n", ISTIO_INGRESS_NAMESPACE, "annotate",
-         "svc", ISTIO_INGRESS_SERVICE,
-         f"service.beta.kubernetes.io/azure-dns-label-name={dns_label}",
-         "--overwrite"],
-        description="Annotate Istio LB with azure-dns-label-name",
+    ip = _wait_for_lb_ip()
+
+    # Find the PIP backing this LB IP. Scoped to the subscription since
+    # the AKS-managed PIP lives in the auto-created node RG.
+    pip_result = subprocess.run(
+        ["az", "network", "public-ip", "list",
+         "--query", f"[?ipAddress=='{ip}'] | [0]",
+         "-o", "json"],
+        capture_output=True, text=True,
     )
+    if pip_result.returncode != 0 or not pip_result.stdout.strip():
+        raise RuntimeError(
+            f"Could not locate the Public IP resource with address {ip}. "
+            "Verify the Istio ingress LB is provisioned."
+        )
+    pip = json.loads(pip_result.stdout)
+    pip_name = pip.get("name", "")
+    pip_rg = pip.get("resourceGroup", "")
+    if not pip_name or not pip_rg:
+        raise RuntimeError(f"Incomplete PIP info for IP {ip}: {pip}")
 
+    current_label = (pip.get("dnsSettings") or {}).get("domainNameLabel", "")
+    if current_label == dns_label:
+        display_result(
+            f"DNS label already set on {pip_name}; no update needed"
+        )
+    else:
+        run_command(
+            ["az", "network", "public-ip", "update",
+             "--name", pip_name,
+             "--resource-group", pip_rg,
+             "--dns-name", dns_label,
+             "--output", "none"],
+            description=f"Set dns-name={dns_label} on {pip_name}",
+        )
 
-def resolve_ingress_fqdn(timeout_seconds: int = 180) -> str:
-    """Block until the Istio LB Service reports its FQDN in status.
-
-    Poll status.loadBalancer.ingress[0].hostname; returns the string
-    when populated. Raises on timeout.
-    """
-    deadline = time.time() + timeout_seconds
-    with console.status("[bold]Waiting for Azure DNS label propagation...[/bold]"):
-        while time.time() < deadline:
-            result = subprocess.run(
-                ["kubectl", "-n", ISTIO_INGRESS_NAMESPACE, "get", "svc",
-                 ISTIO_INGRESS_SERVICE, "-o", "json"],
-                capture_output=True, text=True,
-            )
-            if result.returncode == 0 and result.stdout:
-                try:
-                    svc = json.loads(result.stdout)
-                    ingresses = svc.get("status", {}).get("loadBalancer", {}).get("ingress", [])
-                    if ingresses:
-                        hostname = ingresses[0].get("hostname", "")
-                        if hostname:
-                            display_result(f"Ingress FQDN: {hostname}")
-                            return hostname
-                except json.JSONDecodeError:
-                    pass
-            time.sleep(5)
-    raise RuntimeError(
-        f"Istio ingress LB did not report an FQDN within {timeout_seconds}s. "
-        "Verify the az-dns-label-name annotation was accepted by Azure."
-    )
+    fqdn = f"{dns_label}.{location}.cloudapp.azure.com"
+    display_result(f"Ingress FQDN: {fqdn}")
+    return fqdn
 
 
 def get_ingress_ip() -> str:
