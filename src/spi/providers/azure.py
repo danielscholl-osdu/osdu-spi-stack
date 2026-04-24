@@ -24,7 +24,7 @@ from ..helpers import (
     console, run_command, display_result, run_bicep_deployment,
     create_storage_classes, ensure_namespaces,
     install_gateway_api_crds, kubectl_apply_yaml, display_yaml,
-    discover_dns_zone, set_ingress_dns_label,
+    discover_dns_zone, compute_ingress_fqdn,
     get_ingress_ip, create_ingress_config,
 )
 from ..secrets import ensure_secrets, get_or_create_seed
@@ -81,10 +81,11 @@ def _resolve_ingress_inputs(config: Config) -> None:
       - ip mode:    no-op.
     """
     if config.ingress_mode == IngressMode.AZURE:
-        config.ingress_fqdn = set_ingress_dns_label(
+        config.ingress_fqdn = compute_ingress_fqdn(
             dns_label=config.dns_label,
             location=config.location,
         )
+        display_result(f"Azure FQDN target: {config.ingress_fqdn}")
     elif config.ingress_mode == IngressMode.DNS:
         if not config.dns_zone:
             zone, rg = discover_dns_zone()
