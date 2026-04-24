@@ -91,6 +91,22 @@ def _read_ingress_config() -> dict:
     return data.get("data", {}) or {}
 
 
+def _read_osdu_config() -> dict:
+    """Read the osdu-config ConfigMap from the osdu namespace. Empty if missing."""
+    data = _kubectl_json(["get", "configmap", "osdu-config", "-n", "osdu"])
+    if not data:
+        return {}
+    return data.get("data", {}) or {}
+
+
+def _read_flux_extension_values() -> dict:
+    """Read Azure metadata injected by the AKS Flux extension."""
+    data = _kubectl_json(["get", "configmap", "flux-extension-values", "-n", "flux-system"])
+    if not data:
+        return {}
+    return data.get("data", {}) or {}
+
+
 def _compute_endpoints(cfg: dict) -> tuple:
     """Return (mode, base_url, endpoints_dict, middleware_dict).
 
@@ -144,25 +160,75 @@ def _discover_gateway_ip() -> str:
     return ""
 
 
-def _get_live_credentials() -> dict:
-    """Retrieve in-cluster credentials for the middleware UIs."""
-    creds = {}
+def _get_live_credentials() -> list:
+    """Return [(service, username, password), ...] for the stack's in-cluster
+    middleware. Entries with both user and password empty are dropped so the
+    table only shows credentials that actually exist on this cluster."""
+    pg_user = _secret_value("platform", "postgresql-airflow-credentials", "username")
+    pg_pw = _secret_value("platform", "postgresql-airflow-credentials", "password")
+    pg_su_user = _secret_value("platform", "postgresql-superuser-credentials", "username")
+    pg_su_pw = _secret_value("platform", "postgresql-superuser-credentials", "password")
     elastic_pw = _secret_value("platform", "elasticsearch-es-elastic-user", "elastic")
-    if elastic_pw:
-        creds["elastic_user"] = "elastic"
-        creds["elastic_password"] = elastic_pw
     redis_pw = _secret_value("platform", "redis-credentials", "password")
-    if redis_pw:
-        creds["redis_password"] = redis_pw
     airflow_pw = _secret_value("platform", "airflow-webserver-credentials", "password")
-    if airflow_pw:
-        creds["airflow_user"] = "admin"
-        creds["airflow_password"] = airflow_pw
-    return creds
+
+    rows = [
+        ("PostgreSQL (Airflow)", pg_user, pg_pw),
+        ("PostgreSQL (superuser)", pg_su_user, pg_su_pw),
+        ("Elasticsearch", "elastic" if elastic_pw else "", elastic_pw),
+        ("Redis", "", redis_pw),
+        ("Airflow", "admin" if airflow_pw else "", airflow_pw),
+    ]
+    return [(svc, u, p) for svc, u, p in rows if u or p]
 
 
-def render_info(show_secrets: bool = False, output_json: bool = False):
+def _build_endpoints_table(mode: str, base: str, middleware: dict) -> list:
+    """Shape (Service, URL, Note) rows for the unified Endpoints table."""
+    rows = []
+    if not base:
+        return rows
+
+    if mode == "ip":
+        rows.append(("Gateway (HTTP)", base, "HTTP only; no TLS"))
+    else:
+        rows.append(("Gateway (HTTPS)", base, "Let's Encrypt"))
+
+    for name, url in middleware.items():
+        rows.append((name, url, ""))
+    return rows
+
+
+def _build_internal_services() -> list:
+    """(Service, Cluster Address, Port-Forward Command) rows.
+
+    Port-forward commands target the same cluster addresses via kubectl
+    port-forward so callers can run them verbatim.
+    """
+    return [
+        (
+            "Elasticsearch",
+            "elasticsearch-es-http.platform.svc:9200",
+            "kubectl port-forward -n platform svc/elasticsearch-es-http 9200:9200",
+        ),
+        (
+            "Redis",
+            "redis-master.platform.svc:6380 (TLS)",
+            "kubectl port-forward -n platform svc/redis-master 6380:6379",
+        ),
+        (
+            "PostgreSQL",
+            "postgresql-rw.platform.svc:5432 (Airflow only)",
+            "kubectl cnpg psql postgresql -n platform",
+        ),
+    ]
+
+
+def render_info(show_secrets: bool = False, show_apis: bool = False, output_json: bool = False):
+    from .helpers import get_suspend_status
+
     cfg = _read_ingress_config()
+    osdu = _read_osdu_config()
+    azure_ext = _read_flux_extension_values()
     mode, base, endpoints, middleware = _compute_endpoints(cfg)
 
     info = {
@@ -171,57 +237,138 @@ def render_info(show_secrets: bool = False, output_json: bool = False):
         "endpoints": endpoints,
         "middleware_uis": middleware,
         "internal_services": {
-            "elasticsearch": "elasticsearch-es-http.platform.svc:9200",
-            "redis": "redis-master.platform.svc:6380 (TLS)",
-            "postgresql": "postgresql-rw.platform.svc:5432 (Airflow only)",
+            svc: addr for svc, addr, _hint in _build_internal_services()
         },
+        "azure": {
+            "resource_group": azure_ext.get("AZURE_RESOURCE_GROUP", ""),
+            "region": azure_ext.get("AZURE_REGION", ""),
+            "gateway_ip": cfg.get("GATEWAY_IP", ""),
+            "fqdn": cfg.get("INGRESS_FQDN", ""),
+            "keyvault": osdu.get("KEYVAULT_NAME", ""),
+            "cosmos_endpoint": osdu.get("COSMOSDB_ENDPOINT", ""),
+            "storage_account": osdu.get("STORAGE_ACCOUNT_NAME", ""),
+            "servicebus": osdu.get("SERVICEBUS_NAMESPACE", ""),
+        },
+        "suspended": get_suspend_status(),
     }
 
     if show_secrets:
-        info["credentials"] = _get_live_credentials()
+        creds_list = _get_live_credentials()
+        info["credentials"] = [
+            {"service": svc, "username": u, "password": p} for svc, u, p in creds_list
+        ]
+    else:
+        creds_list = []
 
     if output_json:
         print(json.dumps(info, indent=2))
         return
 
     # Human-readable display
-    console.print(Panel("[bold]SPI Stack Access Information[/bold]", border_style="cyan"))
+    console.print(Panel("[bold]SPI Stack Access Info[/bold]", border_style="cyan"))
+
+    if info["suspended"]:
+        console.print(
+            Panel(
+                "[bold yellow]GitRepository is SUSPENDED[/bold yellow] -- "
+                "Flux will not auto-reconcile new commits.\n"
+                "[dim]Run 'uv run spi reconcile --resume' to unfreeze.[/dim]",
+                border_style="yellow",
+            )
+        )
+
     console.print(f"\n  [ready]Ingress mode:[/ready] {mode or 'unknown'}")
     if base:
         console.print(f"  [ready]Base URL:    [/ready] {base}")
     else:
         console.print(
-            "  [warning]Base URL not yet available — ingress is still "
+            "  [warning]Base URL not yet available -- ingress is still "
             "provisioning. Re-run 'spi info' in a minute.[/warning]"
         )
+    if endpoints and not show_apis:
+        console.print(
+            f"  [ready]OSDU APIs:   [/ready] "
+            f"[dim]{len(endpoints)} services at /api/* "
+            "(--show-apis to list)[/dim]"
+        )
+    console.print()
 
-    if endpoints:
-        table = Table(title="OSDU API Endpoints", border_style="cyan")
-        table.add_column("Service", style="cyan")
-        table.add_column("URL", style="green")
+    endpoint_rows = _build_endpoints_table(mode, base, middleware)
+    if endpoint_rows:
+        table = Table(title="Endpoints", border_style="cyan", expand=True)
+        table.add_column("Service", style="bold")
+        table.add_column("URL", style="cyan")
+        table.add_column("Note", style="dim")
+        for name, url, note in endpoint_rows:
+            table.add_row(name, url, note)
+        console.print(table)
+        console.print()
+
+    if endpoints and show_apis:
+        table = Table(title="OSDU API Endpoints", border_style="cyan", expand=True)
+        table.add_column("Service", style="bold")
+        table.add_column("URL", style="cyan")
         for svc, url in endpoints.items():
             table.add_row(svc, url)
         console.print(table)
+        console.print()
 
-    if middleware:
-        table = Table(title="Middleware UIs", border_style="cyan")
-        table.add_column("UI", style="cyan")
-        table.add_column("URL", style="green")
-        for name, url in middleware.items():
-            table.add_row(name, url)
-        console.print(table)
+    az = info["azure"]
+    if az["resource_group"] or az["gateway_ip"] or az["keyvault"]:
+        lines = []
+        if az["resource_group"]:
+            region = f" ({az['region']})" if az["region"] else ""
+            lines.append(f"[bold]Resource Group:[/bold] {az['resource_group']}{region}")
+        if az["gateway_ip"]:
+            lines.append(f"[bold]Gateway IP:[/bold] {az['gateway_ip']}")
+        if az["fqdn"]:
+            lines.append(f"[bold]Gateway FQDN:[/bold] {az['fqdn']}")
+        if az["keyvault"]:
+            lines.append(f"[bold]Key Vault:[/bold] {az['keyvault']}")
+        if az["cosmos_endpoint"]:
+            lines.append(f"[bold]Cosmos DB:[/bold] {az['cosmos_endpoint']}")
+        if az["storage_account"]:
+            lines.append(f"[bold]Storage Account:[/bold] {az['storage_account']}")
+        if az["servicebus"]:
+            lines.append(f"[bold]Service Bus:[/bold] {az['servicebus']}")
+        console.print(Panel("\n".join(lines), title="Azure", border_style="cyan"))
+        console.print()
 
-    table = Table(title="Internal Services", border_style="cyan")
-    table.add_column("Service", style="cyan")
-    table.add_column("Address", style="green")
-    for svc, addr in info["internal_services"].items():
-        table.add_row(svc, addr)
+    table = Table(
+        title="Internal Services (use port-forward)", border_style="cyan", expand=True
+    )
+    table.add_column("Service", style="bold")
+    table.add_column("Cluster Address", style="cyan")
+    table.add_column("Port-Forward Command", style="yellow")
+    for name, addr, hint in _build_internal_services():
+        table.add_row(name, addr, hint)
     console.print(table)
+    console.print()
 
-    if show_secrets and info.get("credentials"):
-        table = Table(title="Live Credentials (dev/test only)", border_style="yellow")
-        table.add_column("Secret", style="cyan")
-        table.add_column("Value", style="yellow")
-        for k, v in info["credentials"].items():
-            table.add_row(k, v)
-        console.print(table)
+    if show_secrets:
+        console.print(
+            Panel(
+                "[bold yellow]Dev/Test Notice[/bold yellow]\n"
+                "These are live cluster credentials intended for local and non-production use.",
+                border_style="yellow",
+            )
+        )
+        console.print()
+        if creds_list:
+            table = Table(title="Credentials", border_style="cyan", expand=True)
+            table.add_column("Service", style="bold")
+            table.add_column("Username")
+            table.add_column("Password", style="yellow")
+            for svc, user, pw in creds_list:
+                table.add_row(svc, user, pw)
+            console.print(table)
+            console.print()
+        else:
+            console.print(
+                "[dim]No credentials found -- secrets may not be deployed yet.[/dim]\n"
+            )
+    else:
+        console.print(
+            "[dim]Credentials hidden by default. Re-run with '--show-secrets' "
+            "for dev/test access details.[/dim]\n"
+        )

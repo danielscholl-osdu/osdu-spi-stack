@@ -19,6 +19,8 @@ kind: Kustomization
 metadata:
   name: spi-namespaces
   namespace: flux-system
+  labels:
+    spi-stack.layer: "0"
 spec:
   interval: 10m
   sourceRef:
@@ -36,6 +38,8 @@ kind: Kustomization
 metadata:
   name: spi-nodepools
   namespace: flux-system
+  labels:
+    spi-stack.layer: "0"
 spec:
   interval: 10m
   dependsOn:
@@ -55,6 +59,8 @@ kind: Kustomization
 metadata:
   name: spi-cert-manager
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -74,6 +80,8 @@ kind: Kustomization
 metadata:
   name: spi-trust-manager
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -93,6 +101,8 @@ kind: Kustomization
 metadata:
   name: spi-eck-operator
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -112,6 +122,8 @@ kind: Kustomization
 metadata:
   name: spi-cnpg-operator
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -131,6 +143,8 @@ kind: Kustomization
 metadata:
   name: spi-gateway
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -150,6 +164,8 @@ kind: Kustomization
 metadata:
   name: spi-elasticsearch
   namespace: flux-system
+  labels:
+    spi-stack.layer: "2"
 spec:
   interval: 10m
   dependsOn:
@@ -170,6 +186,8 @@ kind: Kustomization
 metadata:
   name: spi-redis
   namespace: flux-system
+  labels:
+    spi-stack.layer: "2"
 spec:
   interval: 10m
   dependsOn:
@@ -190,6 +208,8 @@ kind: Kustomization
 metadata:
   name: spi-postgresql
   namespace: flux-system
+  labels:
+    spi-stack.layer: "2"
 spec:
   interval: 10m
   dependsOn:
@@ -210,6 +230,8 @@ kind: Kustomization
 metadata:
   name: spi-airflow
   namespace: flux-system
+  labels:
+    spi-stack.layer: "3"
 spec:
   interval: 10m
   dependsOn:
@@ -229,6 +251,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-config
   namespace: flux-system
+  labels:
+    spi-stack.layer: "4"
 spec:
   interval: 10m
   dependsOn:
@@ -252,6 +276,8 @@ kind: Kustomization
 metadata:
   name: spi-bootstrap
   namespace: flux-system
+  labels:
+    spi-stack.layer: "4"
 spec:
   interval: 10m
   dependsOn:
@@ -274,6 +300,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-services
   namespace: flux-system
+  labels:
+    spi-stack.layer: "5"
 spec:
   interval: 10m
   dependsOn:
@@ -298,6 +326,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-schema-load
   namespace: flux-system
+  labels:
+    spi-stack.layer: "5"
 spec:
   interval: 10m
   dependsOn:
@@ -324,6 +354,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-reference
   namespace: flux-system
+  labels:
+    spi-stack.layer: "6"
 spec:
   interval: 10m
   dependsOn:

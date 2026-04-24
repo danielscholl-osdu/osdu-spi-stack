@@ -9,6 +9,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-routes
   namespace: flux-system
+  labels:
+    spi-stack.layer: "6"
 spec:
   interval: 10m
   dependsOn:

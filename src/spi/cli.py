@@ -261,6 +261,7 @@ def down(
 @app.command()
 def info(
     show_secrets: bool = typer.Option(False, "--show-secrets", help="Display live Kubernetes credentials"),
+    show_apis: bool = typer.Option(False, "--show-apis", help="Expand the full OSDU API endpoint list"),
     output_json: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
 ):
     """Show cluster access endpoints and optional credentials."""
@@ -269,7 +270,7 @@ def info(
     from .info import render_info
     if not output_json:
         console.print(f"  [dim]Cluster context: {ctx}[/dim]")
-    render_info(show_secrets=show_secrets, output_json=output_json)
+    render_info(show_secrets=show_secrets, show_apis=show_apis, output_json=output_json)
 
 
 @app.command()

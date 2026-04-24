@@ -4,6 +4,11 @@ metadata:
   name: airflow
   namespace: flux-system
 spec:
+  # Pin release name so chart resources are named airflow-* (not
+  # platform-airflow-*, which is the default Flux <targetNamespace>-<name>
+  # concatenation). Routes and ReferenceGrants target airflow-webserver,
+  # so the release name must match or Envoy returns 500.
+  releaseName: airflow
   targetNamespace: platform
   interval: 30m
   timeout: 10m
@@ -26,6 +31,11 @@ spec:
     # Disable Helm hooks for Flux CD compatibility -- Flux manages ordering
     # via Kustomization dependsOn; hooks cause install timeouts
     useHelmHooks: false
+
+    # Static webserver secret key from the CLI-generated secret
+    # (per Airflow production guide). Prevents session invalidation on
+    # webserver pod restarts.
+    webserverSecretKeySecretName: airflow-webserver-credentials
 
     # Use external PostgreSQL (CNPG)
     postgresql:
@@ -69,9 +79,39 @@ spec:
             drop:
               - ALL
 
-    # Create default admin user job
+    # Create default admin user job.
+    # Override default args so the password from airflow-webserver-credentials
+    # is always enforced, even when the user already exists from a prior
+    # install. 'airflow users create' skips existing users, so we follow up
+    # with 'reset-password' to ensure the secret's password wins.
     createUserJob:
       useHelmHooks: false
+      applyCustomEnv: false
+      args:
+        - "bash"
+        - "-c"
+        - |-
+          airflow users create "$@" || true
+          airflow users reset-password -u admin -p "$AIRFLOW_ADMIN_PW"
+        - --
+        - "-r"
+        - "Admin"
+        - "-u"
+        - "admin"
+        - "-e"
+        - "admin@osdu.local"
+        - "-f"
+        - "OSDU"
+        - "-l"
+        - "Admin"
+        - "-p"
+        - "$(AIRFLOW_ADMIN_PW)"
+      env:
+        - name: AIRFLOW_ADMIN_PW
+          valueFrom:
+            secretKeyRef:
+              name: airflow-webserver-credentials
+              key: password
       resources:
         requests:
           cpu: 250m
@@ -103,6 +143,13 @@ spec:
         enabled: true
         username: admin
         role: Admin
+        # Placeholder; the real password is injected into createUserJob via
+        # AIRFLOW_ADMIN_PW env from airflow-webserver-credentials and applied
+        # with 'airflow users reset-password'.
+        password: "unused-overridden-by-createUserJob"
+        email: admin@osdu.local
+        firstName: OSDU
+        lastName: Admin
       resources:
         requests:
           cpu: 250m

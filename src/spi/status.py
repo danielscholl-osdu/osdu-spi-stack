@@ -17,176 +17,409 @@
 import json
 import subprocess
 import time
+from datetime import datetime, timezone
+from typing import List, Optional
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
 
-console = Console(theme=Theme({
-    "ready": "bold green",
-    "progressing": "bold yellow",
-    "failed": "bold red",
-    "info": "dim white",
-}))
-
-# Dependency order matching the 7-layer Kustomization stack (ADR-007).
-# Items not in this list sort to the end alphabetically.
-_KUSTOMIZATION_ORDER = [
-    "osdu-spi-stack-system-stack",
-    "spi-namespaces",
-    "spi-nodepools",
-    "spi-cert-manager",
-    "spi-eck-operator",
-    "spi-cnpg-operator",
-    "spi-gateway",
-    "spi-elasticsearch",
-    "spi-redis",
-    "spi-postgresql",
-    "spi-airflow",
-    "spi-osdu-config",
-    "spi-osdu-services",
-    "spi-osdu-schema-load",
-    "spi-osdu-reference",
-]
-_KUSTOMIZATION_RANK = {name: i for i, name in enumerate(_KUSTOMIZATION_ORDER)}
-
-
-def _kubectl_json(args: list) -> dict | list | None:
-    result = subprocess.run(
-        ["kubectl"] + args + ["-o", "json"],
-        capture_output=True, text=True,
+console = Console(
+    theme=Theme(
+        {
+            "ready": "bold green",
+            "notready": "bold yellow",
+            "failed": "bold red",
+            "header": "bold cyan",
+            "dim": "dim white",
+        }
     )
+)
+
+
+def kubectl_json(args: List[str]) -> Optional[dict]:
+    """Run kubectl with JSON output, return parsed dict or None."""
+    cmd = ["kubectl"] + args + ["-o", "json"]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         return None
     try:
         return json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError:
         return None
 
 
-def _status_style(status: str, ready_ratio: str = "") -> str:
-    s = status.lower()
-    if s in ("true", "ready", "complete", "succeeded"):
-        return "ready"
-    if s == "running" and ready_ratio:
-        # Running but not all containers ready is progressing, not ready
-        parts = ready_ratio.split("/")
-        if len(parts) == 2 and parts[0] == parts[1] and parts[0] != "0":
-            return "ready"
-        return "progressing"
-    if s == "running":
-        return "ready"
-    if s in ("false", "failed", "error", "crashloopbackoff"):
-        return "failed"
-    return "progressing"
+def status_icon(ready: bool, message: str = "") -> Text:
+    if ready:
+        return Text("Ready", style="ready")
+    if "progress" in message.lower() or "reconcil" in message.lower():
+        return Text("Progressing", style="notready")
+    if message:
+        return Text(message[:40], style="failed")
+    return Text("Not Ready", style="notready")
 
 
-def _render_kustomizations():
+def age_str(timestamp: str) -> str:
+    if not timestamp:
+        return ""
+    try:
+        ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - ts
+        seconds = int(delta.total_seconds())
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        if seconds < 86400:
+            return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+        return f"{seconds // 86400}d{(seconds % 86400) // 3600}h"
+    except Exception:
+        return ""
+
+
+def _duration(start: str, end: str) -> str:
+    try:
+        s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        return _fmt_seconds(int((e - s).total_seconds()))
+    except Exception:
+        return ""
+
+
+def _fmt_seconds(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60}s"
+    return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+
+
+def short_image(image: str) -> str:
+    """Extract short image name:tag from a full image reference."""
+    return image.rsplit("/", 1)[-1]
+
+
+def get_kustomization_table() -> Table:
     table = Table(title="Flux Kustomizations", border_style="cyan", expand=True)
-    table.add_column("Name", style="cyan")
-    table.add_column("Ready", justify="center")
+    table.add_column("Name", style="bold")
+    table.add_column("Layer", justify="center")
     table.add_column("Status")
+    table.add_column("Message")
+    table.add_column("Age", justify="right")
 
-    data = _kubectl_json(["get", "kustomizations", "-n", "flux-system"])
+    data = kubectl_json(["get", "kustomizations", "-n", "flux-system"])
     if not data or "items" not in data:
-        console.print("  [info]No Kustomizations found[/info]")
-        return
+        table.add_row("[dim]No kustomizations found[/dim]", "", "", "", "")
+        return table
 
     items = sorted(
         data["items"],
-        key=lambda x: _KUSTOMIZATION_RANK.get(x["metadata"]["name"], 999),
+        key=lambda x: (
+            x.get("metadata", {}).get("labels", {}).get("spi-stack.layer", "9"),
+            x.get("metadata", {}).get("name", ""),
+        ),
     )
+
     for item in items:
-        name = item["metadata"]["name"]
+        name = item.get("metadata", {}).get("name", "")
+        labels = item.get("metadata", {}).get("labels", {})
+        layer = labels.get("spi-stack.layer", "-")
+
         conditions = item.get("status", {}).get("conditions", [])
-        ready = "Unknown"
-        message = ""
-        for c in conditions:
-            if c.get("type") == "Ready":
-                ready = c.get("status", "Unknown")
-                message = c.get("message", "")[:60]
-                break
-        style = _status_style(ready)
-        table.add_row(name, f"[{style}]{ready}[/{style}]", message)
+        ready_cond = next((c for c in conditions if c.get("type") == "Ready"), {})
+        is_ready = ready_cond.get("status") == "True"
+        message = ready_cond.get("message", "")
+        reason = ready_cond.get("reason", "")
 
-    console.print(table)
+        if len(message) > 60:
+            message = message[:57] + "..."
+
+        table.add_row(
+            name,
+            f"L{layer}" if layer != "-" else "-",
+            status_icon(is_ready, reason),
+            message,
+            age_str(ready_cond.get("lastTransitionTime", "")),
+        )
+    return table
 
 
-def _render_helmreleases():
+def get_helmrelease_table() -> Table:
     table = Table(title="Helm Releases", border_style="cyan", expand=True)
-    table.add_column("Name", style="cyan")
-    table.add_column("Ready", justify="center")
-    table.add_column("Revision")
+    table.add_column("Name", style="bold")
+    table.add_column("Chart")
+    table.add_column("Version")
     table.add_column("Status")
+    table.add_column("Message")
 
-    data = _kubectl_json(["get", "helmreleases", "-n", "flux-system"])
+    data = kubectl_json(["get", "helmreleases", "-A"])
     if not data or "items" not in data:
-        console.print("  [info]No HelmReleases found[/info]")
-        return
+        table.add_row("[dim]No HelmReleases found[/dim]", "", "", "", "")
+        return table
 
-    for item in data["items"]:
+    for item in sorted(data["items"], key=lambda x: x["metadata"]["name"]):
         name = item["metadata"]["name"]
+        history = item.get("status", {}).get("history") or []
+        last = history[0] if history else {}
+        spec_chart = item.get("spec", {}).get("chart", {}).get("spec", {})
+        # Prefer the resolved chart name / version from the most recent Helm
+        # release history entry. Falls back to spec for releases that haven't
+        # completed a first install yet (where history is empty).
+        chart = last.get("chartName") or spec_chart.get("chart", "")
+        version = last.get("chartVersion") or spec_chart.get("version", "")
+
         conditions = item.get("status", {}).get("conditions", [])
-        ready = "Unknown"
-        message = ""
-        for c in conditions:
-            if c.get("type") == "Ready":
-                ready = c.get("status", "Unknown")
-                message = c.get("message", "")[:50]
-                break
-        revision = item.get("status", {}).get("lastAppliedRevision", "")
-        style = _status_style(ready)
-        table.add_row(name, f"[{style}]{ready}[/{style}]", revision[:20], message)
+        ready_cond = next((c for c in conditions if c.get("type") == "Ready"), {})
+        is_ready = ready_cond.get("status") == "True"
+        message = ready_cond.get("message", "")
+        reason = ready_cond.get("reason", "")
+        if len(message) > 50:
+            message = message[:47] + "..."
 
-    console.print(table)
+        table.add_row(name, chart, version, status_icon(is_ready, reason), message)
+    return table
 
 
-def _render_pods(namespace: str, title: str):
-    table = Table(title=f"Pods: {title}", border_style="cyan", expand=True)
-    table.add_column("Name", style="cyan")
+def get_custom_resources(platform_ns: str = "platform") -> Table:
+    table = Table(title="Key Resources", border_style="cyan", expand=True)
+    table.add_column("Resource", style="bold")
+    table.add_column("Namespace")
+    table.add_column("Status")
+    table.add_column("Details")
+
+    cnpg = kubectl_json(["get", "clusters.postgresql.cnpg.io", "-n", platform_ns])
+    if cnpg and cnpg.get("items"):
+        for item in cnpg["items"]:
+            name = item["metadata"]["name"]
+            phase = item.get("status", {}).get("phase", "Unknown")
+            instances = item.get("status", {}).get("readyInstances", 0)
+            target = item.get("spec", {}).get("instances", 1)
+            is_ready = phase == "Cluster in healthy state" or (
+                instances == target and instances > 0
+            )
+            table.add_row(
+                f"pg/{name}",
+                platform_ns,
+                status_icon(is_ready, phase),
+                f"{instances}/{target} instances" if target else phase,
+            )
+
+    es = kubectl_json(["get", "elasticsearches.elasticsearch.k8s.elastic.co", "-n", platform_ns])
+    if es and es.get("items"):
+        for item in es["items"]:
+            name = item["metadata"]["name"]
+            phase = item.get("status", {}).get("health", "unknown")
+            avail = item.get("status", {}).get("availableNodes", 0)
+            desired = item.get("status", {}).get(
+                "expectedNodes",
+                sum(ns.get("count", 0) for ns in item.get("spec", {}).get("nodeSets", [])),
+            )
+            is_ready = phase == "green" and avail == desired
+            table.add_row(
+                f"es/{name}",
+                platform_ns,
+                status_icon(is_ready, phase),
+                f"{avail}/{desired} nodes, health={phase}",
+            )
+
+    if not table.rows:
+        table.add_row("[dim]No custom resources found yet[/dim]", "", "", "")
+    return table
+
+
+def get_jobs_table(namespaces: List[str]) -> Optional[Table]:
+    """Show bootstrap Jobs across the stack's namespaces."""
+    data = kubectl_json(["get", "jobs", "-A"])
+    if not data or not data.get("items"):
+        return None
+
+    target = set(namespaces)
+    jobs = [j for j in data["items"] if j["metadata"].get("namespace") in target]
+    if not jobs:
+        return None
+
+    table = Table(title="Bootstrap Jobs", border_style="cyan", expand=True)
+    table.add_column("Job", style="bold")
+    table.add_column("Namespace", style="dim")
+    table.add_column("Status")
+    table.add_column("Duration", justify="right")
+    table.add_column("Age", justify="right")
+
+    for job in sorted(jobs, key=lambda j: j["metadata"]["name"]):
+        name = job["metadata"]["name"]
+        ns = job["metadata"]["namespace"]
+        status_obj = job.get("status", {})
+
+        succeeded = status_obj.get("succeeded", 0)
+        failed = status_obj.get("failed", 0)
+        active = status_obj.get("active", 0)
+
+        if succeeded > 0:
+            job_status = Text("Complete", style="ready")
+        elif active > 0:
+            job_status = Text("Running", style="notready")
+        elif failed > 0:
+            job_status = Text(f"Failed ({failed})", style="failed")
+        else:
+            job_status = Text("Pending", style="notready")
+
+        start = status_obj.get("startTime", "")
+        completion = status_obj.get("completionTime", "")
+        if start and completion:
+            duration = _duration(start, completion)
+        elif start:
+            try:
+                ts = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                elapsed = int((datetime.now(timezone.utc) - ts).total_seconds())
+                duration = _fmt_seconds(elapsed) + "..."
+            except Exception:
+                duration = ""
+        else:
+            duration = ""
+
+        created = job["metadata"].get("creationTimestamp", "")
+        table.add_row(name, ns, job_status, duration, age_str(created))
+
+    return table if table.rows else None
+
+
+def get_pod_table(namespace: str, title: str) -> Table:
+    table = Table(title=title, border_style="cyan", expand=True)
+    table.add_column("Pod", style="bold")
+    table.add_column("Image", style="dim")
     table.add_column("Ready", justify="center")
     table.add_column("Status")
     table.add_column("Restarts", justify="right")
+    table.add_column("Age", justify="right")
 
-    data = _kubectl_json(["get", "pods", "-n", namespace])
-    if not data or "items" not in data:
-        console.print(f"  [info]No pods in {namespace}[/info]")
-        return
+    data = kubectl_json(["get", "pods", "-n", namespace])
+    if not data or not data.get("items"):
+        table.add_row(f"[dim]No pods in {namespace}[/dim]", "", "", "", "", "")
+        return table
 
-    for pod in data["items"]:
-        name = pod["metadata"]["name"]
-        phase = pod.get("status", {}).get("phase", "Unknown")
-        containers = pod.get("status", {}).get("containerStatuses", [])
-        ready_count = sum(1 for c in containers if c.get("ready"))
-        total = len(containers)
-        restarts = sum(c.get("restartCount", 0) for c in containers)
-        ready_str = f"{ready_count}/{total}"
-        style = _status_style(phase, ready_str)
-        table.add_row(name[:50], ready_str, f"[{style}]{phase}[/{style}]", str(restarts))
+    for pod in sorted(data["items"], key=lambda p: p["metadata"]["name"]):
+        meta = pod["metadata"]
+        spec = pod.get("spec", {})
+        status = pod.get("status", {})
+        name = meta["name"]
 
-    console.print(table)
+        containers = spec.get("containers", [])
+        image = short_image(containers[0]["image"]) if containers else ""
+
+        container_statuses = status.get("containerStatuses", [])
+        ready_count = sum(1 for cs in container_statuses if cs.get("ready"))
+        total_count = len(container_statuses)
+        ready_str = f"{ready_count}/{total_count}" if total_count else "0/0"
+
+        phase = status.get("phase", "Unknown")
+        if phase == "Succeeded":
+            pod_status = "Completed"
+        else:
+            pod_status = phase
+        for cs in container_statuses:
+            waiting = cs.get("state", {}).get("waiting", {})
+            if waiting:
+                pod_status = waiting.get("reason", pod_status)
+                break
+
+        if pod_status in ("Completed", "Succeeded"):
+            style = "ready"
+        elif pod_status == "Running" and ready_count == total_count and total_count > 0:
+            style = "ready"
+        elif pod_status in (
+            "Running",
+            "Pending",
+            "ContainerCreating",
+            "Init:0/1",
+            "PodInitializing",
+        ):
+            style = "notready"
+        else:
+            style = "failed"
+
+        restarts = sum(cs.get("restartCount", 0) for cs in container_statuses)
+        created = meta.get("creationTimestamp", "")
+
+        table.add_row(
+            name, image, ready_str, Text(pod_status, style=style), str(restarts), age_str(created)
+        )
+    return table
+
+
+def get_summary() -> Panel:
+    from .helpers import get_suspend_status
+
+    counts = {"ready": 0, "progressing": 0, "failed": 0}
+    data = kubectl_json(["get", "kustomizations", "-n", "flux-system"])
+    if data and "items" in data:
+        for item in data["items"]:
+            conditions = item.get("status", {}).get("conditions", [])
+            ready = next((c for c in conditions if c.get("type") == "Ready"), {})
+            if ready.get("status") == "True":
+                counts["ready"] += 1
+            else:
+                counts["progressing"] += 1
+
+    total = sum(counts.values())
+    if total == 0:
+        return Panel("[dim]No Flux resources found[/dim]", title="Summary", border_style="cyan")
+
+    parts = []
+    if counts["ready"]:
+        parts.append(f"[ready]{counts['ready']} ready[/ready]")
+    if counts["progressing"]:
+        parts.append(f"[notready]{counts['progressing']} progressing[/notready]")
+
+    text = f"Kustomizations: {' / '.join(parts)}  ({counts['ready']}/{total} complete)"
+    if get_suspend_status():
+        text += "  [bold yellow]| SUSPENDED[/bold yellow]"
+    return Panel(text, title="Summary", border_style="cyan")
 
 
 def render_status():
-    console.print(Panel("[bold]SPI Stack Deployment Status[/bold]", border_style="cyan"))
-    _render_kustomizations()
-    console.print()
-    _render_helmreleases()
-    console.print()
-    _render_pods("foundation", "Foundation")
-    console.print()
-    _render_pods("platform", "Platform (Middleware)")
-    console.print()
-    _render_pods("osdu", "OSDU Services")
+    from .helpers import get_suspend_status
+
+    console.print(Panel("[bold]SPI Stack Status[/bold]", border_style="cyan"))
+
+    if get_suspend_status():
+        console.print(
+            Panel(
+                "[bold yellow]GitRepository is SUSPENDED[/bold yellow] -- "
+                "Flux will not auto-reconcile new commits.\n"
+                "[dim]Run 'uv run spi reconcile --resume' to unfreeze.[/dim]",
+                border_style="yellow",
+            )
+        )
+
+    sections = [
+        get_summary(),
+        get_kustomization_table(),
+        get_helmrelease_table(),
+        get_custom_resources(platform_ns="platform"),
+    ]
+
+    jobs_table = get_jobs_table(namespaces=["foundation", "platform", "osdu"])
+    if jobs_table:
+        sections.append(jobs_table)
+
+    sections.append(get_pod_table("foundation", "Foundation Pods (operators)"))
+    sections.append(get_pod_table("platform", "Platform Pods (middleware)"))
+    sections.append(get_pod_table("osdu", "OSDU Pods (services)"))
+
+    for section in sections:
+        console.print(section)
+        console.print()
 
 
-def watch_status():
+def watch_status(interval: int = 30):
+    console.print(f"[dim]Refreshing every {interval}s. Press Ctrl+C to stop.[/dim]\n")
     try:
         while True:
             console.clear()
             render_status()
-            console.print(f"\n[info]Refreshing every 30s. Press Ctrl+C to stop.[/info]")
-            time.sleep(30)
+            console.print(f"[dim]Next refresh in {interval}s... (Ctrl+C to stop)[/dim]")
+            time.sleep(interval)
     except KeyboardInterrupt:
-        console.print("\n[info]Watch stopped.[/info]")
+        console.print("\n[dim]Stopped.[/dim]")

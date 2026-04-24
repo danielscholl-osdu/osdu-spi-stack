@@ -18,6 +18,8 @@ kind: Kustomization
 metadata:
   name: spi-cert-manager-issuers
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -42,6 +44,8 @@ kind: Kustomization
 metadata:
   name: spi-kibana
   namespace: flux-system
+  labels:
+    spi-stack.layer: "3"
 spec:
   interval: 10m
   dependsOn:
@@ -61,6 +65,8 @@ kind: Kustomization
 metadata:
   name: spi-gateway-tls
   namespace: flux-system
+  labels:
+    spi-stack.layer: "1"
 spec:
   interval: 10m
   dependsOn:
@@ -84,6 +90,8 @@ kind: Kustomization
 metadata:
   name: spi-osdu-routes
   namespace: flux-system
+  labels:
+    spi-stack.layer: "6"
 spec:
   interval: 10m
   dependsOn:
