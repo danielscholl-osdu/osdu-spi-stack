@@ -21,15 +21,22 @@ metadata:
     {{- include "osdu-spi-init.labels" . | nindent 4 }}
 data:
   auth.py: |
-    """MSAL federated-token exchange for Workload Identity.
+    """Workload Identity federated-token exchange for a v1.0 Azure AD token.
 
-    Reads AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_FEDERATED_TOKEN_FILE
-    (injected by the AKS Workload Identity webhook) and returns a bearer
-    token. Scope is management.azure.com/.default; partition and
-    entitlements validate by appid, not audience.
+    OSDU services (entitlements-azure, partition-azure) read the caller's
+    application id from the v1.0 `appid` claim. The Microsoft Identity v2.0
+    endpoint emits `azp` instead and omits `appid`, so a token from
+    MSAL.acquire_token_for_client(scopes=[".../.default"]) is rejected as
+    "app-id=" by the OSDU log filter and fails authorization.
+
+    We therefore POST directly to the v1.0 endpoint
+    /{tenant}/oauth2/token with resource=https://management.azure.com/.
+    The response carries `appid` and authorization succeeds.
     """
+    import json
     import os
-    import msal
+    import urllib.parse
+    import urllib.request
 
 
     def get_token() -> str:
@@ -42,26 +49,31 @@ data:
         with open(token_path, "r") as fh:
             federated_token = fh.read().strip()
 
-        authority = f"https://login.microsoftonline.com/{tenant_id}"
-        app = msal.ConfidentialClientApplication(
-            client_id=client_id,
-            authority=authority,
-            client_credential={
-                "client_assertion_type": (
-                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-                ),
-                "client_assertion": federated_token,
-            },
+        data = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_assertion_type": (
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            ),
+            "client_assertion": federated_token,
+            "resource": "https://management.azure.com/",
+        }).encode()
+        req = urllib.request.Request(
+            f"https://login.microsoftonline.com/{tenant_id}/oauth2/token",
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        result = app.acquire_token_for_client(
-            scopes=["https://management.azure.com/.default"]
-        )
-        if "access_token" not in result:
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+            payload = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
             raise SystemExit(
-                "Token acquisition failed: "
-                f"{result.get('error_description', result)}"
+                f"Token acquisition failed: {e.code} {e.read().decode(errors='replace')}"
             )
-        return result["access_token"]
+        if "access_token" not in payload:
+            raise SystemExit(f"Token acquisition failed: {payload}")
+        return payload["access_token"]
   wait.py: |
     """Poll an HTTP endpoint until it returns an expected status code."""
     import sys

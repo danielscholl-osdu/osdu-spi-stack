@@ -18,11 +18,10 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: osdu
 {{- end }}
 
-{{/* Shared pod-spec fragment used by both Jobs. Drops an initContainer that
-     pip-installs msal into /deps and the main container sets PYTHONPATH
-     accordingly. The Workload Identity webhook injects AZURE_TENANT_ID,
-     AZURE_CLIENT_ID, and AZURE_FEDERATED_TOKEN_FILE automatically when the
-     pod carries azure.workload.identity/use: "true". */}}
+{{/* Shared pod-spec fragment used by both Jobs. The Workload Identity webhook
+     injects AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_FEDERATED_TOKEN_FILE
+     automatically when the pod carries azure.workload.identity/use: "true".
+     Auth uses urllib + the v1.0 token endpoint, so no MSAL pip-install step. */}}
 {{- define "osdu-spi-init.podSpec" -}}
 serviceAccountName: {{ .Values.serviceAccountName }}
 restartPolicy: Never
@@ -46,24 +45,4 @@ volumes:
   - name: partition-records
     configMap:
       name: osdu-spi-init-partition-records
-  - name: deps
-    emptyDir: {}
-initContainers:
-  - name: install-msal
-    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-    imagePullPolicy: {{ .Values.image.pullPolicy }}
-    command:
-      - sh
-      - -c
-      - pip install --quiet --target=/deps msal
-    volumeMounts:
-      - name: deps
-        mountPath: /deps
-    resources:
-      {{- toYaml .Values.resources | nindent 6 }}
-    securityContext:
-      allowPrivilegeEscalation: false
-      runAsUser: 1000
-      capabilities:
-        drop: [ALL]
 {{- end }}

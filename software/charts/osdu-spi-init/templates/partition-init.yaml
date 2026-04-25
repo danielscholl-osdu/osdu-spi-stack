@@ -43,17 +43,12 @@ spec:
           env:
             - name: PARTITION
               value: {{ $partition | quote }}
-            - name: PYTHONPATH
-              value: /deps
           volumeMounts:
             - name: scripts
               mountPath: /scripts
               readOnly: true
             - name: partition-records
               mountPath: /partition-records
-              readOnly: true
-            - name: deps
-              mountPath: /deps
               readOnly: true
           resources:
             {{- toYaml $.Values.resources | nindent 12 }}
