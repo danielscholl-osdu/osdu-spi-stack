@@ -43,7 +43,11 @@ from .ingress import (
 from .paths import REPO_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
 from .shell import kubectl_apply_yaml, run_command
-from .templates import osdu_config_configmap, workload_identity_sa
+from .templates import (
+    osdu_config_configmap,
+    spi_init_values_configmap,
+    workload_identity_sa,
+)
 
 GITREPO_NAME = "osdu-spi-stack-system"
 
@@ -80,6 +84,20 @@ def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
     display_result("Workload Identity ServiceAccounts created")
 
 
+def _create_spi_init_values(config: Config) -> None:
+    """Apply the spi-init-values ConfigMap that the osdu-spi-init HelmRelease
+    consumes via valuesFrom. Must run before Flux reconciles the HelmRelease.
+    """
+    console.print("\n[bold]Creating SPI init values ConfigMap...[/bold]")
+    yaml_content = spi_init_values_configmap(config.data_partitions)
+    display_yaml(yaml_content, "ConfigMap: spi-init-values")
+    kubectl_apply_yaml(yaml_content, "apply spi-init-values ConfigMap")
+    display_result(
+        f"spi-init-values ConfigMap created for partitions: "
+        f"{', '.join(config.data_partitions)}"
+    )
+
+
 def _write_keyvault_bootstrap_secrets(
     config: Config,
     keyvault_name: str,
@@ -92,21 +110,27 @@ def _write_keyvault_bootstrap_secrets(
     Partition reads tbl-storage-endpoint to locate its metadata table.
     Indexer and workflow read redis-hostname/redis-password via KeyVaultFacade.
     Search and indexer read {partition}-elastic-* via partition service API.
+
+    Elastic credentials are written per-partition because the partition record
+    resolves them by partition-prefixed secret name. All partitions share the
+    single in-cluster ES cluster and therefore the same elastic user/password.
     """
     console.print("\n[bold]Writing OSDU bootstrap secrets to Key Vault...[/bold]")
-    partition = config.primary_partition
     tbl_endpoint = f"https://{storage_account_name}.table.core.windows.net/"
     elastic_endpoint = "https://elasticsearch-es-http.platform.svc.cluster.local:9200"
     redis_hostname = "platform-redis-master.platform.svc.cluster.local"
 
-    secrets_to_write = [
+    secrets_to_write: list[tuple[str, str]] = [
         ("tbl-storage-endpoint", tbl_endpoint),
         ("redis-hostname", redis_hostname),
         ("redis-password", redis_password),
-        (f"{partition}-elastic-endpoint", elastic_endpoint),
-        (f"{partition}-elastic-username", "elastic"),
-        (f"{partition}-elastic-password", elastic_password),
     ]
+    for p in config.data_partitions:
+        secrets_to_write.extend([
+            (f"{p}-elastic-endpoint", elastic_endpoint),
+            (f"{p}-elastic-username", "elastic"),
+            (f"{p}-elastic-password", elastic_password),
+        ])
 
     for name, value in secrets_to_write:
         run_command(
@@ -198,6 +222,7 @@ def deploy_azure(config: Config, dry_run: bool = False) -> None:
     create_storage_classes()
     install_gateway_api_crds()
     _create_osdu_config(config, infra_outputs)
+    _create_spi_init_values(config)
 
     # Phase 4b: Ingress mode resolution (requires live cluster + Istio LB)
     resolve_post_deploy_inputs(config)

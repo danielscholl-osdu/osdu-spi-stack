@@ -1,0 +1,65 @@
+{{/*
+Copyright 2026, Microsoft
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+*/}}
+
+# One partition-init Job per partition, rendered from .Values.partitions. Each
+# Job POSTs the partition record stored in osdu-spi-init-partition-records to
+# the partition service, authenticating via Workload Identity so the caller's
+# appid becomes TenantInfo.service-account. Re-runs are safe: 409 is treated
+# as success.
+{{- range $partition := .Values.partitions }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: partition-init-{{ $partition }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- include "osdu-spi-init.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: partition-init
+    osdu.spi/partition: {{ $partition }}
+spec:
+  backoffLimit: {{ $.Values.backoffLimit }}
+  activeDeadlineSeconds: {{ $.Values.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-spi-init.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: partition-init
+        osdu.spi/partition: {{ $partition }}
+        azure.workload.identity/use: "true"
+    spec:
+      {{- include "osdu-spi-init.podSpec" $ | nindent 6 }}
+      containers:
+        - name: init
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command:
+            - python
+            - /scripts/init_partition.py
+          env:
+            - name: PARTITION
+              value: {{ $partition | quote }}
+            - name: PYTHONPATH
+              value: /deps
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: partition-records
+              mountPath: /partition-records
+              readOnly: true
+            - name: deps
+              mountPath: /deps
+              readOnly: true
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+{{- end }}

@@ -1,0 +1,91 @@
+{{/*
+Copyright 2026, Microsoft
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+*/}}
+
+# One ConfigMap with a partition.json key per partition. partition-init mounts
+# this at /partition-records and selects the file matching its $PARTITION env.
+#
+# Property keys (cosmos-endpoint, sb-namespace, ...) are the semantic names
+# every OSDU service reads from the partition record. Property values are the
+# Key Vault secret NAMES the partition service dereferences at query time
+# under the caller's Workload Identity.
+#
+# SPI writes partition-prefixed KV secrets (opendes-cosmos-endpoint, ...), so
+# the JSON values below embed the partition name. The connection-string and
+# storage-key secrets hold the literal "DISABLED" in KV because Workload
+# Identity supplies credentials at runtime; they exist only to satisfy the
+# partition record schema.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osdu-spi-init-partition-records
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-spi-init.labels" . | nindent 4 }}
+data:
+{{- range $partition := .Values.partitions }}
+  {{ $partition }}.json: |
+    {
+      "properties": {
+        "compliance-ruleset": {
+          "sensitive": false,
+          "value": "shared"
+        },
+        "cosmos-connection": {
+          "sensitive": true,
+          "value": "{{ $partition }}-cosmos-connection"
+        },
+        "cosmos-endpoint": {
+          "sensitive": true,
+          "value": "{{ $partition }}-cosmos-endpoint"
+        },
+        "cosmos-primary-key": {
+          "sensitive": true,
+          "value": "{{ $partition }}-cosmos-primary-key"
+        },
+        "sb-connection": {
+          "sensitive": true,
+          "value": "{{ $partition }}-sb-connection"
+        },
+        "sb-namespace": {
+          "sensitive": true,
+          "value": "{{ $partition }}-sb-namespace"
+        },
+        "storage-account-key": {
+          "sensitive": true,
+          "value": "{{ $partition }}-storage-account-key"
+        },
+        "storage-account-name": {
+          "sensitive": true,
+          "value": "{{ $partition }}-storage"
+        },
+        "storage-account-blob-endpoint": {
+          "sensitive": true,
+          "value": "{{ $partition }}-storage-account-blob-endpoint"
+        },
+        "elastic-endpoint": {
+          "sensitive": true,
+          "value": "{{ $partition }}-elastic-endpoint"
+        },
+        "elastic-username": {
+          "sensitive": true,
+          "value": "{{ $partition }}-elastic-username"
+        },
+        "elastic-password": {
+          "sensitive": true,
+          "value": "{{ $partition }}-elastic-password"
+        },
+        "elastic-ssl-enabled": {
+          "sensitive": false,
+          "value": "false"
+        },
+        "indexer-decimation-enabled": {
+          "sensitive": false,
+          "value": "true"
+        }
+      }
+    }
+{{- end }}

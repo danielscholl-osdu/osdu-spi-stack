@@ -1,0 +1,61 @@
+# Copyright 2026, Microsoft
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+
+# -- Partitions to bootstrap. Injected via Flux valuesFrom from the
+#    spi-init-values ConfigMap the CLI writes; the default here is only used
+#    when the chart is rendered locally (helm template) without the ConfigMap.
+partitions:
+  - opendes
+
+# -- Azure Entra tenant ID the Workload Identity SA is federated against. The
+#    MSAL exchange needs this to build the authority URL. Injected at runtime
+#    by the AKS Workload Identity webhook as AZURE_TENANT_ID, so we pull it
+#    from the environment rather than from values.
+# -- Namespace where the Jobs run. The workload-identity-sa already exists
+#    here (created by the CLI during bootstrap).
+namespace: osdu
+
+# -- Base image for both Jobs. python:3.12-slim with an initContainer that
+#    pip-installs msal into a shared emptyDir keeps the image surface small
+#    and avoids coupling to the schema-load image tag. Cold-start penalty
+#    (~15 s) is acceptable for one-shot bootstrap Jobs that run at most once
+#    per environment.
+image:
+  repository: python
+  tag: "3.12-slim"
+  pullPolicy: IfNotPresent
+
+# -- Service account used by every Job pod; the AKS Workload Identity webhook
+#    injects AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_FEDERATED_TOKEN_FILE when
+#    the pod carries the azure.workload.identity/use: "true" label.
+serviceAccountName: workload-identity-sa
+
+# -- Node scheduling: Jobs run on the osdu nodepool alongside the services.
+nodeSelector:
+  agentpool: osdu
+
+tolerations:
+  - key: workload
+    operator: Equal
+    value: "osdu"
+    effect: NoSchedule
+
+# -- Resource requests/limits for the init script container. Same shape for
+#    both partition-init and entitlements-init.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# -- activeDeadlineSeconds for the Jobs. 10 min is generous for a few HTTP
+#    POSTs once the services are up.
+activeDeadlineSeconds: 600
+
+# -- backoffLimit: two retries are enough; the init scripts handle 409
+#    (already-exists) as success, so a failure here is a real error.
+backoffLimit: 2

@@ -56,3 +56,5 @@ Create an ADR for any decision that could plausibly have gone a different way an
 | [011](011-trust-manager-ca-distribution.md) | Cross-Namespace CA Distribution via trust-manager | Accepted |
 | [012](012-ingress-profiles.md) | Three Ingress Profiles (azure, dns, ip) | Accepted |
 | [013](013-schema-load-flux-job.md) | Schema Load via a Flux-Managed Job | Accepted |
+| [014](014-suspend-gitops-after-deploy.md) | Suspend GitOps Reconciliation After Deploy | Accepted |
+| [015](015-partition-entitlements-bootstrap.md) | Partition + Entitlements Bootstrap via a Flux Helm Chart | Accepted |

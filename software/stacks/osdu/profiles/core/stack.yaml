@@ -9,6 +9,7 @@
 # Layer 4a: OSDU configuration (ConfigMap created by CLI)
 # Layer 4b: Bootstrap (trust-manager Bundles for CA distribution + Redis Istio DR)
 # Layer 5: Core OSDU services (10 services) -- on osdu nodes
+# Layer 5a: OSDU partition + entitlements bootstrap (per-partition Jobs) -- ADR-015
 # Layer 5b: OSDU schema loader (post-services one-shot Job) -- ADR-013
 # Layer 6: Reference services (unit, crs-conversion, crs-catalog) -- on osdu nodes
 
@@ -316,6 +317,38 @@ spec:
   timeout: 30m
 
 ---
+# Layer 5a: OSDU partition + entitlements bootstrap (see ADR-015)
+# Runs per-partition one-shot Jobs:
+#   partition-init    : POST partition record to partition service
+#   entitlements-init : POST tenant-provisioning so entitlements seeds the
+#                       root groups with the caller's appid as OWNER
+# Both are prerequisites for schema-load; without them schema-load's call to
+# /schemas/system returns 401 because no root groups exist.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: spi-osdu-init
+  namespace: flux-system
+  labels:
+    spi-stack.layer: "5"
+spec:
+  interval: 10m
+  dependsOn:
+    - name: spi-osdu-services
+  sourceRef:
+    kind: GitRepository
+    name: osdu-spi-stack-system
+  path: ./software/stacks/osdu/init
+  prune: true
+  wait: true
+  timeout: 15m
+  healthChecks:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      name: osdu-spi-init
+      namespace: flux-system
+
+---
 # Layer 5b: OSDU schema loader (one-shot Job, see ADR-013)
 # Runs the community schema-service-schema-load image to POST the ~1,386
 # shared OSDU schemas into the primary partition. The Kustomization's
@@ -331,7 +364,7 @@ metadata:
 spec:
   interval: 10m
   dependsOn:
-    - name: spi-osdu-services
+    - name: spi-osdu-init
   sourceRef:
     kind: GitRepository
     name: osdu-spi-stack-system

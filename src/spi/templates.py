@@ -94,3 +94,26 @@ metadata:
     azure.workload.identity/use: "true"
     app.kubernetes.io/managed-by: osdu-spi-stack
 """
+
+
+def spi_init_values_configmap(partitions: list[str]) -> str:
+    """ConfigMap consumed by the osdu-spi-init HelmRelease via valuesFrom.
+
+    Lives in flux-system (where the HelmRelease is reconciled) and carries the
+    full Helm values YAML. The CLI writes it based on --partition flags so that
+    enabling a new partition is a CLI argument change, not a git edit.
+    """
+    partition_lines = "\n".join(f"    - {p}" for p in partitions)
+    return f"""\
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spi-init-values
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+data:
+  values.yaml: |
+    partitions:
+{partition_lines}
+"""

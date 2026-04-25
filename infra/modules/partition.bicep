@@ -281,6 +281,45 @@ resource cosmosPrimaryKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' =
   }
 }
 
+// Blob endpoint is needed by partition-init so the partition record can point
+// services at the partition's blob storage without every service recomputing it.
+resource storageAccountBlobEndpointSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
+  name: '${partition}-storage-account-blob-endpoint'
+  parent: keyVault
+  properties: {
+    value: storageAccount.properties.primaryEndpoints.blob
+  }
+}
+
+// The next three secrets hold the literal string "DISABLED". The partition
+// record declared by the partition-init Job references connection strings and
+// storage keys that Workload Identity replaces at runtime, but the partition
+// service still expects the secret names to resolve. Writing "DISABLED" keeps
+// the schema satisfied without exposing real credentials.
+resource cosmosConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
+  name: '${partition}-cosmos-connection'
+  parent: keyVault
+  properties: {
+    value: 'DISABLED'
+  }
+}
+
+resource serviceBusConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
+  name: '${partition}-sb-connection'
+  parent: keyVault
+  properties: {
+    value: 'DISABLED'
+  }
+}
+
+resource storageAccountKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
+  name: '${partition}-storage-account-key'
+  parent: keyVault
+  properties: {
+    value: 'DISABLED'
+  }
+}
+
 // ──────────────────────────────────────────────────────────
 // Outputs
 // ──────────────────────────────────────────────────────────
