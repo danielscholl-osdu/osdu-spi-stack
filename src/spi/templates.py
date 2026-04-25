@@ -63,7 +63,15 @@ data:
   DOMAIN: "{domain}"
   DATA_PARTITION: "{data_partition}"
   AZURE_TENANT_ID: "{tenant_id}"
-  AAD_CLIENT_ID: "{identity_client_id}"
+  # core-lib-azure 2.0.x and 2.4.x: AzureServicePrincipal.getWIToken adds two
+  # scopes to one v2.0 token request (MANAGEMENT_SCOPE plus
+  # `${aadClientId}/.default`). Azure AD v2.0 rejects multi-resource scope
+  # requests with AADSTS28000. The dedup guard only landed in 2.5.x. As a
+  # workaround we point the Spring `azure.activedirectory.app-resource-id`
+  # binding (relaxed-bound from AAD_CLIENT_ID) at the management resource so
+  # both scopes collapse to https://management.azure.com/.default.
+  # AZURE_CLIENT_ID stays as the UAMI client ID for the WI assertion.
+  AAD_CLIENT_ID: "https://management.azure.com"
   KEYVAULT_URI: "{keyvault_uri}"
   KEYVAULT_URL: "{keyvault_uri}"
   KEYVAULT_NAME: "{keyvault_name}"
@@ -71,7 +79,6 @@ data:
   COSMOSDB_DATABASE: "osdu-db"
   STORAGE_ACCOUNT_NAME: "{storage_account_name}"
   SERVICEBUS_NAMESPACE: "{servicebus_namespace}"
-  REDIS_HOSTNAME: "platform-redis-master.platform.svc.cluster.local"
   REDIS_PORT: "6379"
   SERVER_PORT: "8080"
   APPINSIGHTS_KEY: "{appinsights_key}"
