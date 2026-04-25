@@ -58,3 +58,4 @@ Create an ADR for any decision that could plausibly have gone a different way an
 | [013](013-schema-load-flux-job.md) | Schema Load via a Flux-Managed Job | Accepted |
 | [014](014-suspend-gitops-after-deploy.md) | Suspend GitOps Reconciliation After Deploy | Accepted |
 | [015](015-partition-entitlements-bootstrap.md) | Partition + Entitlements Bootstrap via a Flux Helm Chart | Accepted |
+| [016](016-istio-jwt-projection.md) | Istio JWT Projection for Azure-Provider OSDU Services | Pending |

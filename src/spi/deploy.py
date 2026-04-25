@@ -44,6 +44,7 @@ from .paths import REPO_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
 from .shell import kubectl_apply_yaml, run_command
 from .templates import (
+    istio_auth_resources,
     osdu_config_configmap,
     spi_init_values_configmap,
     workload_identity_sa,
@@ -82,6 +83,26 @@ def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
         )
         kubectl_apply_yaml(sa_yaml, f"apply workload-identity-sa in {ns}")
     display_result("Workload Identity ServiceAccounts created")
+
+
+def _create_istio_auth(config: Config, infra_outputs: dict) -> None:
+    """Apply RequestAuthentication + PeerAuthentication + EnvoyFilter that
+    project the JWT payload into x-app-id / x-user-id headers (ADR-016).
+    Required because the Azure-provider OSDU service images read identity
+    from those headers; without these resources every authenticated call is
+    rejected with app-id= empty.
+    """
+    console.print("\n[bold]Applying OSDU Istio JWT projection...[/bold]")
+    yaml_content = istio_auth_resources(
+        namespace="osdu",
+        tenant_id=infra_outputs.get("tenant_id", ""),
+        entra_client_id=infra_outputs.get("identity_client_id", ""),
+    )
+    display_yaml(yaml_content, "Istio: RequestAuthentication + PeerAuthentication + EnvoyFilter")
+    kubectl_apply_yaml(yaml_content, "apply osdu Istio JWT projection")
+    display_result(
+        "Istio JWT projection applied (RequestAuthentication, PeerAuthentication, EnvoyFilter)"
+    )
 
 
 def _create_spi_init_values(config: Config) -> None:
@@ -222,6 +243,7 @@ def deploy_azure(config: Config, dry_run: bool = False) -> None:
     create_storage_classes()
     install_gateway_api_crds()
     _create_osdu_config(config, infra_outputs)
+    _create_istio_auth(config, infra_outputs)
     _create_spi_init_values(config)
 
     # Phase 4b: Ingress mode resolution (requires live cluster + Istio LB)

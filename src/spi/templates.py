@@ -96,6 +96,145 @@ metadata:
 """
 
 
+def istio_auth_resources(
+    namespace: str, tenant_id: str, entra_client_id: str
+) -> str:
+    """RequestAuthentication + PeerAuthentication + EnvoyFilter required for
+    Azure-provider OSDU services to extract the caller's app id from a
+    validated JWT (see ADR-016).
+
+    The RequestAuthentication validates the bearer and parks the decoded
+    payload as Envoy dynamic metadata. The EnvoyFilter's Lua reads that
+    metadata and writes x-app-id / x-user-id headers, which the in-process
+    Spring filters in the *-azure service images consume. The
+    PeerAuthentication keeps mTLS in PERMISSIVE mode so the bootstrap Jobs
+    are not rejected by managed-mesh defaults.
+    """
+    return f"""\
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: spi-osdu-jwt-authn
+  namespace: {namespace}
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  jwtRules:
+    - issuer: "https://sts.windows.net/{tenant_id}/"
+      jwksUri: "https://login.microsoftonline.com/common/discovery/v2.0/keys"
+      audiences:
+        - "{entra_client_id}"
+        - "https://management.azure.com"
+        - "https://management.azure.com/"
+      outputPayloadToHeader: "x-payload"
+      forwardOriginalToken: true
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+    - issuer: "https://login.microsoftonline.com/{tenant_id}/v2.0"
+      jwksUri: "https://login.microsoftonline.com/common/discovery/v2.0/keys"
+      audiences:
+        - "{entra_client_id}"
+      outputPayloadToHeader: "x-payload"
+      forwardOriginalToken: true
+      fromHeaders:
+        - name: Authorization
+          prefix: "Bearer "
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: spi-osdu-mtls
+  namespace: {namespace}
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  mtls:
+    mode: PERMISSIVE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: spi-osdu-identity-filter
+  namespace: {namespace}
+  labels:
+    app.kubernetes.io/managed-by: osdu-spi-stack
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.lua.spi-osdu-identity-filter
+          typed_config:
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua"
+            inlineCode: |
+              local AAD_V1_ISSUER = "sts.windows.net"
+              local AAD_V2_ISSUER = "login.microsoftonline.com"
+              local entraClientId = "{entra_client_id}"
+
+              local function processAADV1(payload, h)
+                if payload["unique_name"] then
+                  h:headers():add("x-user-id", payload["unique_name"])
+                elseif payload["oid"] and payload["appid"] then
+                  h:headers():add("x-user-id", payload["appid"])
+                elseif payload["upn"] then
+                  h:headers():add("x-user-id", payload["upn"])
+                end
+              end
+
+              local function processAADV2(payload, h)
+                if payload["unique_name"] then
+                  h:headers():add("x-user-id", payload["unique_name"])
+                elseif payload["oid"] then
+                  h:headers():add("x-user-id", payload["oid"])
+                elseif payload["azp"] then
+                  h:headers():add("x-user-id", payload["azp"])
+                end
+              end
+
+              function envoy_on_request(h)
+                h:headers():remove("x-user-id")
+                h:headers():remove("x-app-id")
+
+                local meta = h:streamInfo():dynamicMetadata():get(
+                  "envoy.filters.http.jwt_authn")
+                if not meta or not meta["payload"] then
+                  return
+                end
+                local payload = meta["payload"]
+
+                local aud = payload["aud"]
+                if aud then
+                  h:headers():add("x-app-id", aud)
+                  if aud == "https://management.azure.com/"
+                     or aud == "https://management.azure.com" then
+                    if payload["appid"] then
+                      h:headers():replace("x-app-id", entraClientId)
+                      h:headers():add("x-user-id", entraClientId)
+                    end
+                    return
+                  end
+                end
+
+                local iss = payload["iss"]
+                if iss and string.find(iss, AAD_V1_ISSUER) then
+                  processAADV1(payload, h)
+                elseif iss and string.find(iss, AAD_V2_ISSUER) then
+                  processAADV2(payload, h)
+                end
+              end
+"""
+
+
 def spi_init_values_configmap(partitions: list[str]) -> str:
     """ConfigMap consumed by the osdu-spi-init HelmRelease via valuesFrom.
 
