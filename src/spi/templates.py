@@ -43,6 +43,7 @@ def osdu_config_configmap(
     data_partition: str,
     tenant_id: str,
     identity_client_id: str,
+    aad_client_id: str,
     keyvault_uri: str,
     keyvault_name: str,
     cosmosdb_endpoint: str,
@@ -50,7 +51,15 @@ def osdu_config_configmap(
     servicebus_namespace: str,
     appinsights_key: str = "",
 ) -> str:
-    """ConfigMap with Azure PaaS endpoints for OSDU services."""
+    """ConfigMap with Azure PaaS endpoints for OSDU services.
+
+    aad_client_id is the Entra app id used by the Spring auth filters to
+    match the JWT appid claim, and by core-lib-azure to build the
+    `${{aadClientId}}/.default` scope inside `getWIToken`. Defaults to the
+    UAMI client id (single-resource scope, dodges AADSTS28000); override
+    with the AAD_CLIENT_ID host env var to point at a separate OSDU app
+    registration.
+    """
     return f"""\
 apiVersion: v1
 kind: ConfigMap
@@ -63,15 +72,7 @@ data:
   DOMAIN: "{domain}"
   DATA_PARTITION: "{data_partition}"
   AZURE_TENANT_ID: "{tenant_id}"
-  # core-lib-azure 2.0.x and 2.4.x: AzureServicePrincipal.getWIToken adds two
-  # scopes to one v2.0 token request (MANAGEMENT_SCOPE plus
-  # `${aadClientId}/.default`). Azure AD v2.0 rejects multi-resource scope
-  # requests with AADSTS28000. The dedup guard only landed in 2.5.x. As a
-  # workaround we point the Spring `azure.activedirectory.app-resource-id`
-  # binding (relaxed-bound from AAD_CLIENT_ID) at the management resource so
-  # both scopes collapse to https://management.azure.com/.default.
-  # AZURE_CLIENT_ID stays as the UAMI client ID for the WI assertion.
-  AAD_CLIENT_ID: "https://management.azure.com"
+  AAD_CLIENT_ID: "{aad_client_id}"
   KEYVAULT_URI: "{keyvault_uri}"
   KEYVAULT_URL: "{keyvault_uri}"
   KEYVAULT_NAME: "{keyvault_name}"

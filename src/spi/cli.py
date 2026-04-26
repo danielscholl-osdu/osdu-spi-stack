@@ -14,6 +14,7 @@
 
 """SPI CLI - Deploy OSDU SPI Stack on Azure AKS Automatic."""
 
+import os
 from typing import List, Optional
 
 import typer
@@ -52,6 +53,12 @@ def _show_config(config: Config):
     table.add_row("Ingress Mode", config.ingress_mode.value)
     if config.ingress_mode == IngressMode.DNS and config.dns_zone:
         table.add_row("DNS Zone", f"{config.dns_zone} (rg: {config.dns_zone_rg})")
+
+    aad_override = os.environ.get("AAD_CLIENT_ID", "").strip()
+    if aad_override:
+        table.add_row("AAD Client ID", f"{aad_override} [dim](env override)[/dim]")
+    else:
+        table.add_row("AAD Client ID", "[dim](default: UAMI client id)[/dim]")
 
     console.print(table)
 

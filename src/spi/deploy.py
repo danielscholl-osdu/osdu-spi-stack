@@ -20,6 +20,7 @@ Workload Identity SAs, in-cluster seed secrets), activates GitOps via Flux,
 and writes the KV runtime secrets that OSDU services read at startup.
 """
 
+import os
 import subprocess
 import time
 
@@ -60,11 +61,14 @@ def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
     console.print("\n[bold]Creating OSDU configuration...[/bold]")
 
     partition = config.primary_partition
+    identity_client_id = infra_outputs.get("identity_client_id", "")
+    aad_client_id = os.environ.get("AAD_CLIENT_ID", "").strip() or identity_client_id
     yaml_content = osdu_config_configmap(
         domain="",  # Updated later by `spi info` once external IP is known
         data_partition=partition,
         tenant_id=infra_outputs.get("tenant_id", ""),
-        identity_client_id=infra_outputs.get("identity_client_id", ""),
+        identity_client_id=identity_client_id,
+        aad_client_id=aad_client_id,
         keyvault_uri=infra_outputs.get("keyvault_uri", ""),
         keyvault_name=config.keyvault_name,
         cosmosdb_endpoint=infra_outputs.get(f"{partition}_cosmos_endpoint", ""),
