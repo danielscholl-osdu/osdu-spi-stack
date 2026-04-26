@@ -30,8 +30,23 @@ Shape:
 
 Rejected:
 - **Imperative CLI step.** Re-opens the problems ADR-011 and ADR-013 closed: hidden CLI dependency, no re-run from the cluster, invisible to `flux get kustomizations`.
-- **Port osdu-developer's chart verbatim.** Its `partition.json` references unprefixed Key Vault secret names (`cosmos-endpoint`) while SPI uses partition-prefixed names (`opendes-cosmos-endpoint`). Rewriting the JSON values was unavoidable, so adopting SPI's idioms (reusing `schema-load`'s Token.py, dropping the azure-cli + tdnf install bulk) was the cheaper option.
 - **Per-partition Flux Kustomization stamping.** One Kustomization per partition would duplicate every wiring decision in this ADR. A single Kustomization that contains a chart with a per-partition loop is the same outcome with less YAML.
+
+## Amendment (2026-04-26)
+
+The original decision rejected osdu-developer's chart on the premise that its
+`partition.json` referenced "unprefixed" KV secret names while SPI Stack uses
+partition-prefixed names — and concluded the JSON values had to embed the
+partition prefix (`opendes-cosmos-endpoint`). That premise was wrong.
+partition-azure auto-prefixes the partition id onto every `sensitive: true`
+value at write time, so values must be bare KV secret suffixes
+(`cosmos-endpoint`, not `opendes-cosmos-endpoint`); embedding the prefix
+double-prefixes the stored value (`opendes-opendes-cosmos-endpoint`), which
+matches no real KV secret and causes downstream services to fail with
+"Invalid data partition id" the first time they try to dereference the
+record. osdu-developer's bare-name pattern is the correct one. The chart
+template now uses bare values; the rest of the ADR (chart shape, layer
+ordering, idempotence semantics, KV secret inventory) stands as accepted.
 
 ## Consequences
 
