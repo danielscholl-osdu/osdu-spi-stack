@@ -291,11 +291,24 @@ resource storageAccountBlobEndpointSecret 'Microsoft.KeyVault/vaults/secrets@202
   }
 }
 
-// The next three secrets hold the literal string "DISABLED". The partition
-// record declared by the partition-init Job references connection strings and
-// storage keys that Workload Identity replaces at runtime, but the partition
-// service still expects the secret names to resolve. Writing "DISABLED" keeps
-// the schema satisfied without exposing real credentials.
+// cosmos-connection and storage-account-key hold the literal "DISABLED".
+// The partition record references these secret names; Workload Identity
+// supplies the real credentials at runtime for every code path that supports
+// it, and writing "DISABLED" keeps the schema satisfied without exposing
+// real credentials.
+//
+// sb-connection is the carve-out: indexer-queue (image indexer-queue-master,
+// core-lib-azure 2.0.6) builds its Service Bus SubscriptionClient via
+// SubscriptionClientFactoryImpl, which always uses a SAS ConnectionStringBuilder
+// regardless of AZURE_PAAS_WORKLOADIDENTITY_ISENABLED. Without the real
+// primary connection string here, indexer-queue cannot subscribe to
+// recordstopic and records-changed events never reach the indexer.
+// See ADR-005 for the carve-out rationale.
+resource serviceBusRootKey 'Microsoft.ServiceBus/namespaces/authorizationRules@2022-10-01-preview' existing = {
+  parent: serviceBusNamespace
+  name: 'RootManageSharedAccessKey'
+}
+
 resource cosmosConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(keyVaultName)) {
   name: '${partition}-cosmos-connection'
   parent: keyVault
@@ -308,7 +321,7 @@ resource serviceBusConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-0
   name: '${partition}-sb-connection'
   parent: keyVault
   properties: {
-    value: 'DISABLED'
+    value: serviceBusRootKey.listKeys().primaryConnectionString
   }
 }
 

@@ -26,3 +26,7 @@ Rejected: per-service UAMIs with least-privilege scoping. The role surface (the 
 - One identity, one set of RBAC bindings. Provisioning is deterministic and re-runs are idempotent.
 - All OSDU services share the same access envelope; there is no per-service blast-radius containment at the Azure layer. Containment is at the Kubernetes RBAC and mesh layer instead.
 - The schema-load Job (ADR-013) and any future workloads in the `osdu` namespace reuse this ServiceAccount without any new Azure-side provisioning.
+
+## Carve-outs
+
+- `${partition}-sb-connection` in Key Vault stores the Service Bus namespace's primary SAS connection string, not "DISABLED". The `indexer-queue-master` image (current `core-lib-azure` 2.0.6) builds its Service Bus subscription client via `SubscriptionClientFactoryImpl`, which constructs a `ConnectionStringBuilder` regardless of `AZURE_PAAS_WORKLOADIDENTITY_ISENABLED`. Without a real connection string the subscription client throws `IllegalConnectionStringFormatException` on every retry and records-changed events never reach the indexer. The matching `osdu-developer` reference takes the same approach. The secret remains in Key Vault gated by the same UAMI's `Key Vault Secrets User` role; no SAS key is mounted into a pod env var or written to disk. Revisit when the upstream subscription client honors the WI flag.
