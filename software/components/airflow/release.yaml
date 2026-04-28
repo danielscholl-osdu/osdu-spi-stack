@@ -156,7 +156,9 @@ spec:
           memory: 512Mi
         limits:
           cpu: "1"
-          memory: 1Gi
+          # 4 sync gunicorn workers steady-state ~1.9GB total; 1Gi cgroup
+          # OOMs the workers under load.
+          memory: 2Gi
       tolerations:
         - key: workload
           operator: Equal
