@@ -56,13 +56,26 @@ GITREPO_NAME = "osdu-spi-stack-system"
 INFRA_FLUX_BICEP = REPO_ROOT / "infra" / "flux.bicep"
 
 
+def _resolve_aad_client_id(identity_client_id: str) -> str:
+    """Return the appid services should mint service-to-service tokens for.
+
+    Defaults to the OSDU UAMI client id (single-resource scope, dodges
+    AADSTS28000); the AAD_CLIENT_ID host env var overrides this to point
+    at a separate OSDU AAD app registration. The Istio audience list and
+    the osdu-config ConfigMap must agree on this value, or service-to-
+    service calls fail jwt_authn and reach the Spring filter without an
+    x-app-id header (ADR-016).
+    """
+    return os.environ.get("AAD_CLIENT_ID", "").strip() or identity_client_id
+
+
 def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
     """Create the osdu-config ConfigMap and workload identity SAs."""
     console.print("\n[bold]Creating OSDU configuration...[/bold]")
 
     partition = config.primary_partition
     identity_client_id = infra_outputs.get("identity_client_id", "")
-    aad_client_id = os.environ.get("AAD_CLIENT_ID", "").strip() or identity_client_id
+    aad_client_id = _resolve_aad_client_id(identity_client_id)
     yaml_content = osdu_config_configmap(
         domain="",  # Updated later by `spi info` once external IP is known
         data_partition=partition,
@@ -97,10 +110,12 @@ def _create_istio_auth(config: Config, infra_outputs: dict) -> None:
     rejected with app-id= empty.
     """
     console.print("\n[bold]Applying OSDU Istio JWT projection...[/bold]")
+    identity_client_id = infra_outputs.get("identity_client_id", "")
     yaml_content = istio_auth_resources(
         namespace="osdu",
         tenant_id=infra_outputs.get("tenant_id", ""),
-        entra_client_id=infra_outputs.get("identity_client_id", ""),
+        entra_client_id=identity_client_id,
+        aad_client_id=_resolve_aad_client_id(identity_client_id),
     )
     display_yaml(yaml_content, "Istio: RequestAuthentication + PeerAuthentication + EnvoyFilter")
     kubectl_apply_yaml(yaml_content, "apply osdu Istio JWT projection")

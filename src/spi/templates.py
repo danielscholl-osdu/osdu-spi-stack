@@ -105,7 +105,10 @@ metadata:
 
 
 def istio_auth_resources(
-    namespace: str, tenant_id: str, entra_client_id: str
+    namespace: str,
+    tenant_id: str,
+    entra_client_id: str,
+    aad_client_id: str,
 ) -> str:
     """RequestAuthentication + PeerAuthentication + EnvoyFilter required for
     Azure-provider OSDU services to extract the caller's app id from a
@@ -117,7 +120,23 @@ def istio_auth_resources(
     Spring filters in the *-azure service images consume. The
     PeerAuthentication keeps mTLS in PERMISSIVE mode so the bootstrap Jobs
     are not rejected by managed-mesh defaults.
+
+    Both ``entra_client_id`` (the OSDU UAMI client id) and ``aad_client_id``
+    are listed in the jwtRules audiences. The bootstrap Jobs present tokens
+    with ``aud=https://management.azure.com/``; the Lua's special-case branch
+    pins ``x-app-id`` to ``entra_client_id`` for those. Service-to-service
+    calls inside the cluster mint tokens via core-lib-azure's ``getWIToken``
+    with scope ``${{aadClientId}}/.default`` (i.e. ``aud=aad_client_id``),
+    so ``aad_client_id`` must also be a valid audience for those calls to
+    pass jwt_authn and have ``x-app-id`` projected. When the operator does
+    not override AAD_CLIENT_ID, both values are equal and only one entry is
+    emitted per jwtRule.
     """
+    extra_aud = (
+        f'\n        - "{aad_client_id}"'
+        if aad_client_id and aad_client_id != entra_client_id
+        else ""
+    )
     return f"""\
 apiVersion: security.istio.io/v1
 kind: RequestAuthentication
@@ -131,7 +150,7 @@ spec:
     - issuer: "https://sts.windows.net/{tenant_id}/"
       jwksUri: "https://login.microsoftonline.com/common/discovery/v2.0/keys"
       audiences:
-        - "{entra_client_id}"
+        - "{entra_client_id}"{extra_aud}
         - "https://management.azure.com"
         - "https://management.azure.com/"
       outputPayloadToHeader: "x-payload"
@@ -142,7 +161,7 @@ spec:
     - issuer: "https://login.microsoftonline.com/{tenant_id}/v2.0"
       jwksUri: "https://login.microsoftonline.com/common/discovery/v2.0/keys"
       audiences:
-        - "{entra_client_id}"
+        - "{entra_client_id}"{extra_aud}
       outputPayloadToHeader: "x-payload"
       forwardOriginalToken: true
       fromHeaders:

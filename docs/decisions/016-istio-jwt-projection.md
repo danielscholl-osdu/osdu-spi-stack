@@ -1,6 +1,6 @@
 # ADR-016: Istio JWT Projection for Azure-Provider OSDU Services
 
-**Status**: Pending
+**Status**: Accepted
 
 ## Context
 
@@ -29,7 +29,17 @@ A per-service default-deny `AuthorizationPolicy` is intentionally not adopted in
 - The CLI-applied resources are present before any caller is expected to authenticate, so the bootstrap Jobs and ongoing service-to-service traffic both see populated `x-app-id` headers.
 - A new dependency on Istio Envoy Lua sits between deployment and authorization. Failures in JWKS reachability, RA configuration drift, or sidecar version skew now manifest as `app-id=` empty rather than as a clear-cut auth error. The runbook should call out checking the EnvoyFilter and RequestAuthentication first when bootstrap Jobs return 401/403.
 - Tying the EnvoyFilter to the Workload Identity audience (`https://management.azure.com/`) means future identity changes (different audience, switch to a managed identity with different claims, etc.) require revisiting the Lua. The mapping is small and contained, but it is a coupling that did not previously exist.
-- The pattern is unverified inside this stack. Marking the ADR Pending makes the verification step explicit. It moves to Accepted once a clean `down` → `up` cycle drives partition-init, entitlements-init, and schema-load through to success without manual intervention. If the pattern does not hold in practice — for example if AKS managed Istio rejects the EnvoyFilter or if the projection works for one service and not another — the ADR is rejected and superseded with the working alternative.
+- The audience list must include every value services use to mint service-to-service tokens. The bootstrap Jobs talk to in-cluster services with `aud=https://management.azure.com/`, but `core-lib-azure`'s `getWIToken` mints subsequent calls with scope `${aadClientId}/.default` — so when the operator sets `AAD_CLIENT_ID` to a separate OSDU AAD app registration, that appid must be a valid audience too. Otherwise `jwt_authn` skips validation, the Lua exits early, the Spring filter sees an empty `x-app-id`, and partition (or any downstream service) returns 403 with `app-id=` empty in the request log. `istio_auth_resources()` accepts both `entra_client_id` (UAMI) and `aad_client_id` and emits both in the audiences list, deduped when they match the default.
+
+## Verification (2026-04-28)
+
+Verified on `spi-stack-test` after widening the audience list. With `AAD_CLIENT_ID` overridden to a separate OSDU AAD app registration:
+
+- partition-init POSTs the partition record with `aud=https://management.azure.com/`; the Lua remaps `x-app-id` to the UAMI client id; partition stores the record (201) and treats re-runs as 409.
+- entitlements-init POSTs `tenant-provisioning`. core-lib-azure's `TenantFactoryImpl` calls partition GET `/partitions/{p}` with a v2 token whose `aud` is the AAD app id. With the AAD app id in the RA audience list, jwt_authn validates, the Lua sets `x-app-id=aud`, partition's `AzureIstioSecurityFilter` admits the call, and tenant-provisioning succeeds (200 / 409 on re-run).
+- schema-load lands on the now-provisioned partition.
+
+The earlier symptom — empty `app-id=` in partition's TxnLogger and 403 "Invalid data partition id" from entitlements — was a direct consequence of the audience list missing the `AAD_CLIENT_ID` override; not of the projection pattern itself.
 
 Rejected alternatives:
 
