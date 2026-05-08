@@ -78,15 +78,15 @@ def _create_osdu_config(config: Config, infra_outputs: dict) -> None:
     aad_client_id = _resolve_aad_client_id(identity_client_id)
     yaml_content = osdu_config_configmap(
         domain="",  # Updated later by `spi info` once external IP is known
-        data_partition=partition,
+        primary_partition=partition,
         tenant_id=infra_outputs.get("tenant_id", ""),
         identity_client_id=identity_client_id,
         aad_client_id=aad_client_id,
         keyvault_uri=infra_outputs.get("keyvault_uri", ""),
         keyvault_name=config.keyvault_name,
-        cosmosdb_endpoint=infra_outputs.get(f"{partition}_cosmos_endpoint", ""),
-        storage_account_name=infra_outputs.get("common_storage_name", ""),
-        servicebus_namespace=infra_outputs.get(f"{partition}_sb_namespace", ""),
+        primary_cosmosdb_endpoint=infra_outputs.get(f"{partition}_cosmos_endpoint", ""),
+        primary_storage_account_name=infra_outputs.get("common_storage_name", ""),
+        primary_servicebus_namespace=infra_outputs.get(f"{partition}_sb_namespace", ""),
     )
     display_yaml(yaml_content, "ConfigMap: osdu-config")
     kubectl_apply_yaml(yaml_content, "apply osdu-config ConfigMap")

@@ -63,6 +63,17 @@ spec:
           env:
             - name: NAMESPACE
               value: "osdu"
+            # The OSDU community schema-load image's bootstrap.sh reads
+            # ${DATA_PARTITION}. The osdu-config ConfigMap exposes the
+            # primary partition as PRIMARY_PARTITION (renamed to make
+            # multi-partition deploys honest); alias it back to the env
+            # name the loader expects. system-db is primary-only by
+            # design (ADR-013), so loading against the primary is correct.
+            - name: DATA_PARTITION
+              valueFrom:
+                configMapKeyRef:
+                  name: osdu-config
+                  key: PRIMARY_PARTITION
           volumeMounts:
             - name: scripts
               mountPath: /home/osdu/deployments/scripts/azure/bootstrap.sh
