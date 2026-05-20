@@ -37,6 +37,9 @@ uv run spi check
 
 # Deploy (provisions Azure resources + activates GitOps)
 uv run spi up --env dev1
+
+# Multi-partition deploy (one CosmosDB + Service Bus + storage per partition)
+uv run spi up --env dev1 --partition opendes --partition tenant1
 ```
 
 ### After Deploy

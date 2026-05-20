@@ -215,15 +215,100 @@ def get_custom_resources(platform_ns: str = "platform") -> Table:
     return table
 
 
-def get_jobs_table(namespaces: List[str]) -> Optional[Table]:
-    """Show bootstrap Jobs across the stack's namespaces."""
-    data = kubectl_json(["get", "jobs", "-A"])
-    if not data or not data.get("items"):
+_PARTITION_INIT_COMPONENTS = {"partition-init", "entitlements-init"}
+
+
+def _job_status_cell(status_obj: dict) -> Text:
+    succeeded = status_obj.get("succeeded", 0)
+    failed = status_obj.get("failed", 0)
+    active = status_obj.get("active", 0)
+    if succeeded > 0:
+        return Text("Complete", style="ready")
+    if active > 0:
+        return Text("Running", style="notready")
+    if failed > 0:
+        return Text(f"Failed ({failed})", style="failed")
+    return Text("Pending", style="notready")
+
+
+def _job_duration(status_obj: dict) -> str:
+    start = status_obj.get("startTime", "")
+    completion = status_obj.get("completionTime", "")
+    if start and completion:
+        return _duration(start, completion)
+    if start:
+        try:
+            ts = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            elapsed = int((datetime.now(timezone.utc) - ts).total_seconds())
+            return _fmt_seconds(elapsed) + "..."
+        except Exception:
+            return ""
+    return ""
+
+
+def get_partition_init_table(jobs: List[dict]) -> Optional[Table]:
+    """Show partition + entitlements bootstrap Jobs grouped by partition.
+
+    Filters by ``app.kubernetes.io/component in (partition-init,
+    entitlements-init)`` and groups by the ``osdu.spi/partition`` label
+    emitted by software/charts/osdu-spi-init.
+    """
+    rows = []
+    for job in jobs:
+        labels = job.get("metadata", {}).get("labels", {}) or {}
+        component = labels.get("app.kubernetes.io/component", "")
+        partition = labels.get("osdu.spi/partition", "")
+        if component not in _PARTITION_INIT_COMPONENTS or not partition:
+            continue
+        rows.append((partition, component, job))
+
+    if not rows:
         return None
 
+    table = Table(title="Partition Bootstrap", border_style="cyan", expand=True)
+    table.add_column("Partition", style="bold")
+    table.add_column("Component")
+    table.add_column("Status")
+    table.add_column("Duration", justify="right")
+    table.add_column("Age", justify="right")
+
+    for partition, component, job in sorted(rows, key=lambda r: (r[0], r[1])):
+        status_obj = job.get("status", {})
+        created = job.get("metadata", {}).get("creationTimestamp", "")
+        table.add_row(
+            partition,
+            component,
+            _job_status_cell(status_obj),
+            _job_duration(status_obj),
+            age_str(created),
+        )
+    return table
+
+
+def _fetch_jobs(namespaces: List[str]) -> List[dict]:
+    data = kubectl_json(["get", "jobs", "-A"])
+    if not data or not data.get("items"):
+        return []
     target = set(namespaces)
-    jobs = [j for j in data["items"] if j["metadata"].get("namespace") in target]
-    if not jobs:
+    return [j for j in data["items"] if j["metadata"].get("namespace") in target]
+
+
+def get_jobs_table(namespaces: List[str]) -> Optional[Table]:
+    """Show non-partition bootstrap Jobs across the stack's namespaces.
+
+    Partition + entitlements init Jobs are pulled out into
+    ``get_partition_init_table`` so multi-partition deploys present a
+    per-partition view; remaining one-shot Jobs (schema-load, etc.)
+    appear here.
+    """
+    jobs = _fetch_jobs(namespaces)
+    generic = [
+        j for j in jobs
+        if (j.get("metadata", {}).get("labels") or {}).get(
+            "app.kubernetes.io/component"
+        ) not in _PARTITION_INIT_COMPONENTS
+    ]
+    if not generic:
         return None
 
     table = Table(title="Bootstrap Jobs", border_style="cyan", expand=True)
@@ -233,41 +318,18 @@ def get_jobs_table(namespaces: List[str]) -> Optional[Table]:
     table.add_column("Duration", justify="right")
     table.add_column("Age", justify="right")
 
-    for job in sorted(jobs, key=lambda j: j["metadata"]["name"]):
+    for job in sorted(generic, key=lambda j: j["metadata"]["name"]):
         name = job["metadata"]["name"]
         ns = job["metadata"]["namespace"]
         status_obj = job.get("status", {})
-
-        succeeded = status_obj.get("succeeded", 0)
-        failed = status_obj.get("failed", 0)
-        active = status_obj.get("active", 0)
-
-        if succeeded > 0:
-            job_status = Text("Complete", style="ready")
-        elif active > 0:
-            job_status = Text("Running", style="notready")
-        elif failed > 0:
-            job_status = Text(f"Failed ({failed})", style="failed")
-        else:
-            job_status = Text("Pending", style="notready")
-
-        start = status_obj.get("startTime", "")
-        completion = status_obj.get("completionTime", "")
-        if start and completion:
-            duration = _duration(start, completion)
-        elif start:
-            try:
-                ts = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                elapsed = int((datetime.now(timezone.utc) - ts).total_seconds())
-                duration = _fmt_seconds(elapsed) + "..."
-            except Exception:
-                duration = ""
-        else:
-            duration = ""
-
         created = job["metadata"].get("creationTimestamp", "")
-        table.add_row(name, ns, job_status, duration, age_str(created))
-
+        table.add_row(
+            name,
+            ns,
+            _job_status_cell(status_obj),
+            _job_duration(status_obj),
+            age_str(created),
+        )
     return table if table.rows else None
 
 
@@ -388,6 +450,10 @@ def render_status():
         get_custom_resources(platform_ns="platform"),
     ]
 
+    jobs = _fetch_jobs(namespaces=["foundation", "platform", "osdu"])
+    partition_table = get_partition_init_table(jobs)
+    if partition_table:
+        sections.append(partition_table)
     jobs_table = get_jobs_table(namespaces=["foundation", "platform", "osdu"])
     if jobs_table:
         sections.append(jobs_table)

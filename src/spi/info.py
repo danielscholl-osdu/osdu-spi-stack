@@ -28,6 +28,8 @@ import json
 from rich.panel import Panel
 from rich.table import Table
 
+from .azure_infra import _cosmos_sql_name, _sb_name, _storage_name
+from .config import BASE_NAME
 from .console import console
 from .shell import kubectl_json
 
@@ -85,6 +87,76 @@ def _read_flux_extension_values() -> dict:
     if not data:
         return {}
     return data.get("data", {}) or {}
+
+
+def _read_partitions_list() -> list:
+    """Extract the partition list from the spi-init-values ConfigMap.
+
+    The CLI writes this ConfigMap from the --partition flags during bootstrap
+    (see deploy._create_spi_init_values). The Helm chart's per-partition init
+    Jobs render from the same source, so this is the authoritative list.
+
+    Returns ["opendes"] as a safe fallback when the ConfigMap is missing — a
+    cluster pre-bootstrap or one deployed without the CLI still renders sanely.
+    """
+    data = kubectl_json(["get", "configmap", "spi-init-values", "-n", "flux-system"])
+    if not data:
+        return []
+    values_yaml = (data.get("data") or {}).get("values.yaml", "")
+    return _parse_partitions_from_values_yaml(values_yaml)
+
+
+def _parse_partitions_from_values_yaml(text: str) -> list:
+    """Pull the partition names out of the small known-shape values.yaml blob.
+
+    Avoids a yaml dep at the CLI runtime path; the ConfigMap is CLI-written
+    so its shape is fixed: ``partitions:\\n  - p1\\n  - p2``.
+    """
+    in_partitions = False
+    out: list = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped == "partitions:":
+            in_partitions = True
+            continue
+        if in_partitions:
+            if stripped.startswith("- "):
+                out.append(stripped[2:].strip())
+            elif stripped and not stripped.startswith("-"):
+                # Hit a sibling key; stop collecting.
+                break
+    return out
+
+
+def _env_from_resource_group(rg: str) -> str:
+    """Extract the --env flag value from the resource group name.
+
+    Naming follows ``{BASE_NAME}-{env}`` (config.from_env). When the user
+    deployed without --env the RG is just ``BASE_NAME`` and env is empty.
+    """
+    if not rg:
+        return ""
+    prefix = f"{BASE_NAME}-"
+    return rg[len(prefix):] if rg.startswith(prefix) else ""
+
+
+def _build_partitions_rows(partitions: list, env: str) -> list:
+    """(Partition, Cosmos Account, Service Bus Namespace, Storage Account) rows.
+
+    Resource names are derived locally via the same helpers azure_infra.py
+    uses to build the Bicep parameters. No Azure round-trip required —
+    naming is the contract.
+    """
+    rows = []
+    for i, p in enumerate(partitions):
+        label = f"{p} (primary)" if i == 0 else p
+        rows.append((
+            label,
+            _cosmos_sql_name(p, env),
+            _sb_name(p, env),
+            _storage_name("osdu" + env + p, ""),
+        ))
+    return rows
 
 
 def _compute_endpoints(cfg: dict) -> tuple:
@@ -211,6 +283,11 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
     azure_ext = _read_flux_extension_values()
     mode, base, endpoints, middleware = _compute_endpoints(cfg)
 
+    rg = azure_ext.get("AZURE_RESOURCE_GROUP", "")
+    env = _env_from_resource_group(rg)
+    partitions = _read_partitions_list()
+    partition_rows = _build_partitions_rows(partitions, env)
+
     info = {
         "ingress_mode": mode,
         "base_url": base,
@@ -220,15 +297,25 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
             svc: addr for svc, addr, _hint in _build_internal_services()
         },
         "azure": {
-            "resource_group": azure_ext.get("AZURE_RESOURCE_GROUP", ""),
+            "resource_group": rg,
             "region": azure_ext.get("AZURE_REGION", ""),
             "gateway_ip": cfg.get("GATEWAY_IP", ""),
             "fqdn": cfg.get("INGRESS_FQDN", ""),
             "keyvault": osdu.get("KEYVAULT_NAME", ""),
-            "cosmos_endpoint": osdu.get("COSMOSDB_ENDPOINT", ""),
-            "storage_account": osdu.get("STORAGE_ACCOUNT_NAME", ""),
-            "servicebus": osdu.get("SERVICEBUS_NAMESPACE", ""),
+            "cosmos_endpoint": osdu.get("PRIMARY_COSMOSDB_ENDPOINT", ""),
+            "storage_account": osdu.get("PRIMARY_STORAGE_ACCOUNT_NAME", ""),
+            "servicebus": osdu.get("PRIMARY_SERVICEBUS_NAMESPACE", ""),
         },
+        "partitions": [
+            {
+                "name": partitions[i],
+                "primary": i == 0,
+                "cosmos_account": cosmos,
+                "servicebus_namespace": sb,
+                "storage_account": storage,
+            }
+            for i, (_label, cosmos, sb, storage) in enumerate(partition_rows)
+        ],
         "suspended": get_suspend_status(),
     }
 
@@ -306,12 +393,23 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
         if az["keyvault"]:
             lines.append(f"[bold]Key Vault:[/bold] {az['keyvault']}")
         if az["cosmos_endpoint"]:
-            lines.append(f"[bold]Cosmos DB:[/bold] {az['cosmos_endpoint']}")
+            lines.append(f"[bold]Primary Cosmos DB:[/bold] {az['cosmos_endpoint']}")
         if az["storage_account"]:
-            lines.append(f"[bold]Storage Account:[/bold] {az['storage_account']}")
+            lines.append(f"[bold]Common Storage:[/bold] {az['storage_account']}")
         if az["servicebus"]:
-            lines.append(f"[bold]Service Bus:[/bold] {az['servicebus']}")
+            lines.append(f"[bold]Primary Service Bus:[/bold] {az['servicebus']}")
         console.print(Panel("\n".join(lines), title="Azure", border_style="cyan"))
+        console.print()
+
+    if partition_rows:
+        ptable = Table(title="Partitions", border_style="cyan", expand=True)
+        ptable.add_column("Partition", style="bold")
+        ptable.add_column("Cosmos Account", style="cyan")
+        ptable.add_column("Service Bus Namespace", style="cyan")
+        ptable.add_column("Storage Account", style="cyan")
+        for label, cosmos, sb, storage in partition_rows:
+            ptable.add_row(label, cosmos, sb, storage)
+        console.print(ptable)
         console.print()
 
     table = Table(

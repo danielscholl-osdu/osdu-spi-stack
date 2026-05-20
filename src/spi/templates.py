@@ -40,18 +40,24 @@ allowVolumeExpansion: {str(allow_volume_expansion).lower()}"""
 
 def osdu_config_configmap(
     domain: str,
-    data_partition: str,
+    primary_partition: str,
     tenant_id: str,
     identity_client_id: str,
     aad_client_id: str,
     keyvault_uri: str,
     keyvault_name: str,
-    cosmosdb_endpoint: str,
-    storage_account_name: str,
-    servicebus_namespace: str,
+    primary_cosmosdb_endpoint: str,
+    primary_storage_account_name: str,
+    primary_servicebus_namespace: str,
     appinsights_key: str = "",
 ) -> str:
     """ConfigMap with Azure PaaS endpoints for OSDU services.
+
+    The PRIMARY_* keys carry the primary partition's data plane endpoints.
+    OSDU services do not consume them for per-request routing — they call
+    partition-service to resolve each request's backend by partition id.
+    The keys exist for the schema-load Job (which targets osdu-system-db,
+    primary-only by design — ADR-013) and for operator visibility.
 
     aad_client_id is the Entra app id used by the Spring auth filters to
     match the JWT appid claim, and by core-lib-azure to build the
@@ -70,16 +76,16 @@ metadata:
     app.kubernetes.io/managed-by: osdu-spi-stack
 data:
   DOMAIN: "{domain}"
-  DATA_PARTITION: "{data_partition}"
+  PRIMARY_PARTITION: "{primary_partition}"
   AZURE_TENANT_ID: "{tenant_id}"
   AAD_CLIENT_ID: "{aad_client_id}"
   KEYVAULT_URI: "{keyvault_uri}"
   KEYVAULT_URL: "{keyvault_uri}"
   KEYVAULT_NAME: "{keyvault_name}"
-  COSMOSDB_ENDPOINT: "{cosmosdb_endpoint}"
+  PRIMARY_COSMOSDB_ENDPOINT: "{primary_cosmosdb_endpoint}"
   COSMOSDB_DATABASE: "osdu-db"
-  STORAGE_ACCOUNT_NAME: "{storage_account_name}"
-  SERVICEBUS_NAMESPACE: "{servicebus_namespace}"
+  PRIMARY_STORAGE_ACCOUNT_NAME: "{primary_storage_account_name}"
+  PRIMARY_SERVICEBUS_NAMESPACE: "{primary_servicebus_namespace}"
   REDIS_PORT: "6379"
   SERVER_PORT: "8080"
   APPINSIGHTS_KEY: "{appinsights_key}"

@@ -14,10 +14,23 @@
 
 """Configuration models for SPI Stack."""
 
+import re
 from enum import Enum
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+# Partition names must be lowercase alphanumeric. Hyphens and underscores are
+# stripped at Azure-resource-name time (`_storage_name` in azure_infra.py),
+# so allowing them here would silently collide two configured partitions.
+_PARTITION_NAME_RE = re.compile(r"^[a-z0-9]+$")
+
+# Storage account naming is the binding constraint: `osdu{env}{partition}`
+# with hyphens stripped, max 24 chars (`_storage_name` truncates with [:24]
+# so over-budget names would silently collapse onto the 24-char prefix).
+# Cosmos (44) and Service Bus (50) always fit when storage fits.
+_STORAGE_NAME_PREFIX = "osdu"
+_STORAGE_NAME_MAX_LEN = 24
 
 
 class Profile(str, Enum):
@@ -96,6 +109,36 @@ class Config(BaseModel):
     def primary_partition(self) -> str:
         """First data partition hosts the system database."""
         return self.data_partitions[0]
+
+    @model_validator(mode="after")
+    def _validate_data_partitions(self) -> "Config":
+        partitions = self.data_partitions
+        if not partitions:
+            raise ValueError("data_partitions must contain at least one partition")
+
+        duplicates = sorted({p for p in partitions if partitions.count(p) > 1})
+        if duplicates:
+            raise ValueError(
+                f"data_partitions contains duplicate names: {duplicates}"
+            )
+
+        sanitized_env = self.env.replace("-", "").replace("_", "")
+        for p in partitions:
+            if not _PARTITION_NAME_RE.fullmatch(p):
+                raise ValueError(
+                    f"partition name {p!r} must be lowercase alphanumeric "
+                    f"(matches [a-z0-9]+); hyphens and underscores are stripped "
+                    f"during Azure resource naming and would silently collide"
+                )
+            storage_name = f"{_STORAGE_NAME_PREFIX}{sanitized_env}{p}"
+            if len(storage_name) > _STORAGE_NAME_MAX_LEN:
+                raise ValueError(
+                    f"partition name {p!r} produces storage account name "
+                    f"{storage_name!r} (length {len(storage_name)}), exceeding "
+                    f"the {_STORAGE_NAME_MAX_LEN}-char Azure limit. Shorten the "
+                    f"env (currently {self.env!r}) or the partition name."
+                )
+        return self
 
     @property
     def resolved_ingress_prefix(self) -> str:
