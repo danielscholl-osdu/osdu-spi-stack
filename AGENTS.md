@@ -142,9 +142,13 @@ For prerequisite diagnostics, tool installation, and authentication setup, use t
 ## OSDU Service Images
 
 Services use Azure SPI images from the OSDU community registry:
-- Pattern: `community.opengroup.org:5555/osdu/platform/.../service-azure:tag`
-- Image tags are pinned to full 40-char Git SHAs in HelmRelease manifests.
-- To update an image, change the tag in the corresponding service YAML under `software/stacks/osdu/services/`.
+- Pattern: `community.opengroup.org:5555/osdu/platform/.../*-master:tag`
+- `spi up` resolves current master SHA tags and writes them to
+  `flux-system/osdu-image-lock`; service manifests use Flux post-build
+  substitution with checked-in defaults as a fallback.
+- Refresh a live cluster with `uv run spi reconcile --refresh-images`.
+- To refresh checked-in fallback defaults, run
+  `python scripts/resolve-image-tags.py --update`.
 
 ## Deployment Workflow
 

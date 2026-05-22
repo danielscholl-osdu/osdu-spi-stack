@@ -16,87 +16,19 @@ Environment variables:
     OSDU_IMAGE_BRANCH         - Branch suffix for image names (default: master)
 """
 
-import json
 import os
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
-GITLAB_HOST = "https://community.opengroup.org"
-DEFAULT_BRANCH = "master"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
 
-# Service registry: maps service name to GitLab project ID, image base name,
-# and the HelmRelease YAML file to update.
-# Project IDs from community.opengroup.org GitLab.
-IMAGE_REGISTRY = {
-    # Core services (software/stacks/osdu/services/)
-    "partition":      {"project_id": 221, "image": "partition",            "file": "services/partition.yaml"},
-    "entitlements":   {"project_id": 400, "image": "entitlements",         "file": "services/entitlements.yaml"},
-    "legal":          {"project_id": 74,  "image": "legal",               "file": "services/legal.yaml"},
-    "schema":         {"project_id": 26,  "image": "schema-service",      "file": "services/schema.yaml"},
-    "schema-load":    {"project_id": 26,  "image": "schema-service-schema-load", "file": "schema-load/job.yaml"},
-    "storage":        {"project_id": 44,  "image": "storage",             "file": "services/storage.yaml"},
-    "search":         {"project_id": 19,  "image": "search-service",      "file": "services/search.yaml"},
-    "indexer":        {"project_id": 25,  "image": "indexer-service",     "file": "services/indexer.yaml"},
-    "indexer-queue":  {"project_id": 73,  "image": "indexer-queue",       "file": "services/indexer-queue.yaml"},
-    "file":           {"project_id": 90,  "image": "file",                "file": "services/file.yaml"},
-    "workflow":       {"project_id": 146, "image": "ingestion-workflow",  "file": "services/workflow.yaml"},
-    # Reference services (software/stacks/osdu/services-reference/)
-    "crs-conversion": {"project_id": 22,  "image": "crs-conversion-service", "file": "services-reference/crs-conversion.yaml"},
-    "crs-catalog":    {"project_id": 21,  "image": "crs-catalog-service",    "file": "services-reference/crs-catalog.yaml"},
-    "unit":           {"project_id": 5,   "image": "unit-service",           "file": "services-reference/unit.yaml"},
-}
-
-
-def gitlab_get(url: str):
-    """GET a GitLab API URL, return parsed JSON."""
-    req = urllib.request.Request(url, headers={"User-Agent": "spi-stack-resolver"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
-
-
-def resolve_image(svc_name: str, entry: dict, branch: str) -> dict | None:
-    """Resolve the latest image tag for a service from the GitLab registry."""
-    svc_branch = entry.get("branch", branch)
-    image_name = f"{entry['image']}-{svc_branch}"
-    project_id = entry["project_id"]
-
-    # List registry repositories for this project. The schema-service project
-    # alone has 160+ repos (per-release service + loader + helm charts), well
-    # past GitLab's default page size of 20. Pass per_page=100 and paginate to
-    # cover the full set; also filter by image_name as a substring to reduce
-    # the result window.
-    repos: list = []
-    page = 1
-    while True:
-        chunk = gitlab_get(
-            f"{GITLAB_HOST}/api/v4/projects/{project_id}/registry/repositories"
-            f"?per_page=100&page={page}&search={image_name}"
-        )
-        if not chunk:
-            break
-        repos.extend(chunk)
-        if len(chunk) < 100:
-            break
-        page += 1
-
-    # Find the repository matching our image name
-    repo = next((r for r in repos if r["name"] == image_name), None)
-    if not repo:
-        return None
-
-    # Get the latest tag (first returned)
-    tags = gitlab_get(
-        f"{GITLAB_HOST}/api/v4/projects/{project_id}/registry/repositories/{repo['id']}/tags?per_page=1"
-    )
-    if not tags:
-        return None
-
-    tag = tags[0]["name"]
-    repository = repo["location"].removesuffix(f":{tag}")
-
-    return {"repository": repository, "tag": tag}
+from spi.images import (  # noqa: E402
+    DEFAULT_IMAGE_BRANCH,
+    IMAGE_REGISTRY,
+    resolve_image,
+)
 
 
 def update_yaml_file(filepath: Path, repository: str, tag: str) -> bool:
@@ -113,18 +45,21 @@ def update_yaml_file(filepath: Path, repository: str, tag: str) -> bool:
     """
     content = filepath.read_text()
 
-    # Format 1: split repository: / tag:
+    # Format 1: split repository: / tag:. Preserve Flux substitution
+    # defaults when present, e.g. ${PARTITION_IMAGE_TAG:=sha}.
     new_content = re.sub(
-        r"(repository:\s*).+",
-        rf"\g<1>{repository}",
+        r"(^\s*repository:\s*)(.+)$",
+        lambda m: m.group(1) + _replace_default(m.group(2), repository, quote=False),
         content,
         count=1,
+        flags=re.MULTILINE,
     )
     new_content = re.sub(
-        r'(tag:\s*)"[^"]+"',
-        rf'\g<1>"{tag}"',
+        r"(^\s*tag:\s*)(.+)$",
+        lambda m: m.group(1) + _replace_default(m.group(2), tag, quote=True),
         new_content,
         count=1,
+        flags=re.MULTILINE,
     )
 
     # Format 2: combined image: "repo:tag" (with or without surrounding quotes).
@@ -146,10 +81,18 @@ def update_yaml_file(filepath: Path, repository: str, tag: str) -> bool:
     return False
 
 
+def _replace_default(existing: str, value: str, quote: bool) -> str:
+    """Replace a static YAML value or a Flux ${VAR:=default} default."""
+
+    if "${" in existing and ":=" in existing:
+        return re.sub(r":=[^}]+", f":={value}", existing, count=1)
+    return f'"{value}"' if quote else value
+
+
 def main():
     update_mode = "--update" in sys.argv
-    branch = os.environ.get("OSDU_IMAGE_BRANCH", DEFAULT_BRANCH)
-    stacks_dir = Path(__file__).parent.parent / "software" / "stacks" / "osdu"
+    branch = os.environ.get("OSDU_IMAGE_BRANCH", DEFAULT_IMAGE_BRANCH)
+    stacks_dir = REPO_ROOT / "software" / "stacks" / "osdu"
 
     print(f"\nResolving OSDU image tags (branch: {branch})...\n")
 
@@ -159,34 +102,33 @@ def main():
     for svc_name, entry in IMAGE_REGISTRY.items():
         try:
             result = resolve_image(svc_name, entry, branch)
-            if result:
-                resolved[svc_name] = result
-                short_tag = result["tag"][:12]
-                repo_suffix = result["repository"].split("/")[-1]
-                print(f"  {svc_name:<20} -> {repo_suffix}:{short_tag}")
-            else:
-                print(f"  {svc_name:<20} -> NOT FOUND")
-                errors.append(svc_name)
+            resolved[svc_name] = result
+            short_tag = result.tag[:12]
+            repo_suffix = result.repository.split("/")[-1]
+            print(f"  {svc_name:<20} -> {repo_suffix}:{short_tag}")
         except Exception as e:
             print(f"  {svc_name:<20} -> ERROR: {e}")
             errors.append(svc_name)
 
     print(f"\nResolved {len(resolved)}/{len(IMAGE_REGISTRY)} services")
 
+    if errors:
+        print(f"\nWARNING: {len(errors)} service(s) could not be resolved: {', '.join(errors)}")
+        if update_mode:
+            print("No files updated because resolution did not complete atomically.")
+        return 1
+
     if update_mode and resolved:
         print("\nUpdating HelmRelease files...")
         for svc_name, result in resolved.items():
             entry = IMAGE_REGISTRY[svc_name]
-            filepath = stacks_dir / entry["file"]
+            filepath = stacks_dir / entry.file
             if filepath.exists():
-                changed = update_yaml_file(filepath, result["repository"], result["tag"])
+                changed = update_yaml_file(filepath, result.repository, result.tag)
                 status = "updated" if changed else "unchanged"
                 print(f"  {filepath.name:<25} {status}")
             else:
                 print(f"  {filepath.name:<25} NOT FOUND")
-
-    if errors:
-        print(f"\nWARNING: {len(errors)} service(s) could not be resolved: {', '.join(errors)}")
 
     return 0 if resolved else 1
 

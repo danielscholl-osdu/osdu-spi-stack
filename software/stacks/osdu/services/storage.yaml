@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/storage/storage-master
-      tag: "72792d99dbcd2eb60d32693987d0b66b2f4b7926"
+      repository: ${STORAGE_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/storage/storage-master}
+      tag: "${STORAGE_IMAGE_TAG:=739b5e5a8c79aa8595d618b3890e93bbed16e389}"
     redisTls: true
     nodeSelector:
       agentpool: osdu

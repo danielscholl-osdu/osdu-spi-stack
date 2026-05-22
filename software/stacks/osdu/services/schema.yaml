@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/schema-service/schema-service-master
-      tag: "868023373a2f7550d9f3e850d06434838eeeb2b4"
+      repository: ${SCHEMA_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/schema-service/schema-service-master}
+      tag: "${SCHEMA_IMAGE_TAG:=ae8d35e5452ddd8d47bd395be06f3bcc4d0062a7}"
     redisTls: true
     nodeSelector:
       agentpool: osdu

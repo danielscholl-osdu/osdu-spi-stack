@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/search-service/search-service-master
-      tag: "151b5bd5139936ea699f59ce604604fb6047e346"
+      repository: ${SEARCH_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/search-service/search-service-master}
+      tag: "${SEARCH_IMAGE_TAG:=0e4a3bb06b6895e51e34e11c78043a73ea87681c}"
     elasticTls: true
     redisTls: true
     nodeSelector:

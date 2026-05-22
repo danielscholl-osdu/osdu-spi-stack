@@ -23,10 +23,16 @@ from rich.table import Table
 
 from .checks import PREREQ_TOOLS, check_prerequisites
 from .config import Config, IngressMode, Profile
-from .console import console
+from .console import console, display_result, display_yaml
 from .guard import get_suspend_status, verify_spi_cluster
+from .images import (
+    DEFAULT_IMAGE_BRANCH,
+    ImageResolutionError,
+    render_image_lock_configmap,
+    resolve_image_lock,
+)
 from .ingress import resolve_acme_email, resolve_ingress_mode
-from .shell import run_command
+from .shell import kubectl_apply_yaml, run_command
 
 app = typer.Typer(
     name="spi",
@@ -184,6 +190,16 @@ def up(
         help="Preview Azure PaaS changes via Bicep what-if. Creates the resource group "
              "(required by what-if) but skips AKS, Kubernetes bootstrap, and GitOps.",
     ),
+    refresh_images: bool = typer.Option(
+        True,
+        "--refresh-images/--no-refresh-images",
+        help="Resolve current OSDU master image tags and write the Flux image lock.",
+    ),
+    image_branch: str = typer.Option(
+        DEFAULT_IMAGE_BRANCH,
+        "--image-branch",
+        help="OSDU image branch suffix to resolve from the community registry.",
+    ),
 ):
     """Provision Azure infrastructure and deploy the OSDU SPI stack."""
     if profile is None:
@@ -212,7 +228,12 @@ def up(
 
     try:
         from .deploy import deploy_azure
-        deploy_azure(config, dry_run=dry_run)
+        deploy_azure(
+            config,
+            dry_run=dry_run,
+            refresh_images=refresh_images,
+            image_branch=image_branch,
+        )
         if dry_run:
             console.print(
                 "\n[success]Dry-run complete. No AKS cluster or Kubernetes workloads "
@@ -284,12 +305,27 @@ def status(
 def reconcile(
     suspend: bool = typer.Option(False, "--suspend", help="Freeze: stop Flux auto-reconciliation"),
     resume: bool = typer.Option(False, "--resume", help="Unfreeze: resume Flux auto-reconciliation"),
+    refresh_images: bool = typer.Option(
+        False,
+        "--refresh-images",
+        help="Resolve current OSDU master image tags and update osdu-image-lock before reconciling.",
+    ),
+    image_branch: str = typer.Option(
+        DEFAULT_IMAGE_BRANCH,
+        "--image-branch",
+        help="OSDU image branch suffix to resolve from the community registry.",
+    ),
 ):
     """Force Flux to reconcile the git source and stack."""
     import datetime
 
     if suspend and resume:
         console.print("[error]Cannot use --suspend and --resume together.[/error]")
+        raise typer.Exit(code=1)
+    if refresh_images and (suspend or resume):
+        console.print(
+            "[error]--refresh-images cannot be combined with --suspend or --resume.[/error]"
+        )
         raise typer.Exit(code=1)
 
     ctx = verify_spi_cluster()
@@ -318,6 +354,25 @@ def reconcile(
         console.print("[success]GitRepository resumed.[/success]")
         return
 
+    if refresh_images:
+        console.print("\n[bold]Resolving OSDU service images...[/bold]")
+        try:
+            resolved = resolve_image_lock(branch=image_branch)
+        except ImageResolutionError as exc:
+            console.print(f"[error]Unable to resolve OSDU service images: {exc}[/error]")
+            raise typer.Exit(code=1)
+
+        for name, image in resolved.items():
+            console.print(
+                f"  [success]{name}[/success] -> "
+                f"{image.repository.split('/')[-1]}:{image.tag[:12]}"
+            )
+
+        image_lock_yaml = render_image_lock_configmap(resolved, branch=image_branch)
+        display_yaml(image_lock_yaml, "ConfigMap: osdu-image-lock")
+        kubectl_apply_yaml(image_lock_yaml, "apply osdu-image-lock ConfigMap")
+        display_result("osdu-image-lock ConfigMap updated")
+
     # Default: force reconcile
     if get_suspend_status():
         console.print(Panel(
@@ -336,7 +391,13 @@ def reconcile(
         description="Trigger GitRepository reconciliation",
     )
 
-    for name in ["osdu-spi-stack", "osdu-spi-stack-system-stack", "stack"]:
+    for name in [
+        "osdu-spi-stack",
+        "osdu-spi-stack-system-stack",
+        "stack",
+        "spi-osdu-services",
+        "spi-osdu-reference",
+    ]:
         run_command(
             ["kubectl", "annotate", "--overwrite", f"kustomization/{name}",
              "-n", "flux-system", f"reconcile.fluxcd.io/requestedAt={ts}"],

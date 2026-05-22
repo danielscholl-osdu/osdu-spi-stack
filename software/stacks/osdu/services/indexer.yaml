@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/indexer-service/indexer-service-master
-      tag: "160ef832e5a686e4ed1ef594c105865f907ea1b4"
+      repository: ${INDEXER_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/indexer-service/indexer-service-master}
+      tag: "${INDEXER_IMAGE_TAG:=6c744a59b174514f75802ac31579463162c7a7e4}"
     elasticTls: true
     redisTls: true
     nodeSelector:

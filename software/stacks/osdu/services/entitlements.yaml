@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/security-and-compliance/entitlements/entitlements-master
-      tag: "0fb954f01c7ef59a68194c88dec4d8d166d0b48e"
+      repository: ${ENTITLEMENTS_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/security-and-compliance/entitlements/entitlements-master}
+      tag: "${ENTITLEMENTS_IMAGE_TAG:=c6d91278bbf521c589c2af24be02807fbfce7ba8}"
     redisTls: true
     nodeSelector:
       agentpool: osdu

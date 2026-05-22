@@ -212,7 +212,9 @@ Changes to this repository (middleware manifests, profile definitions, service Y
 
 ### Service update loop
 
-When an OSDU service merges to master, its GitLab CI pipeline builds a new container image. `scripts/resolve-image-tags.py --update` rewrites the pinned SHA in the relevant HelmRelease under `software/stacks/osdu/services/`. The commit flows through the infrastructure loop and Flux performs a rolling update. HelmReleases use `reconcileStrategy: Revision` so chart digests, not just versions, trigger upgrades.
+When an OSDU service merges to master, its GitLab CI pipeline builds a new container image and the community registry exposes a new immutable SHA tag. `spi up` resolves the current master tags and writes them to `flux-system/osdu-image-lock`; the service Kustomizations consume that ConfigMap through Flux post-build substitution. This keeps the deployed image set explicit while avoiding stale, pruned tags in long-lived test workflows.
+
+Run `spi reconcile --refresh-images` to resolve a fresh image lock for an existing cluster, then reconcile the service Kustomizations. The checked-in service YAML keeps fallback defaults for non-CLI rendering and emergency use; `scripts/resolve-image-tags.py --update` refreshes those defaults in Git.
 
 ### Suspend and resume
 

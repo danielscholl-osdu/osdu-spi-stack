@@ -22,8 +22,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-catalog-service/crs-catalog-service-master
-      tag: "1ddd1e4107fcf61e67d36dfc62b9308f099caf5e"
+      repository: ${CRS_CATALOG_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/reference/crs-catalog-service/crs-catalog-service-master}
+      tag: "${CRS_CATALOG_IMAGE_TAG:=b8346451d141b39f67e5c2de160df712da757578}"
     nodeSelector:
       agentpool: osdu
     tolerations:

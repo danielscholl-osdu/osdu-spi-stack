@@ -25,5 +25,5 @@ Rejected: reuse upstream community charts and patch at render time. The failure 
 
 - Compliance is guaranteed at authoring time. Admission rejections during reconcile are a drift bug in our chart, not a surprise from upstream.
 - One chart covers all OSDU services; per-service differences live in HelmRelease `values`.
-- Upstream chart changes do not affect our deployments. We follow upstream image tags (resolved by `scripts/resolve-image-tags.py`), not chart versions.
+- Upstream chart changes do not affect our deployments. We follow upstream image tags through the CLI-generated `osdu-image-lock` ConfigMap, not chart versions.
 - A chart change is a cross-cutting change; reviews must weigh the blast radius across every service HelmRelease.

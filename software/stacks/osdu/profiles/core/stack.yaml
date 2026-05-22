@@ -312,6 +312,11 @@ spec:
     kind: GitRepository
     name: osdu-spi-stack-system
   path: ./software/stacks/osdu/services
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: osdu-image-lock
+        optional: true
   prune: true
   wait: true
   timeout: 30m
@@ -398,6 +403,11 @@ spec:
     kind: GitRepository
     name: osdu-spi-stack-system
   path: ./software/stacks/osdu/services-reference
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: osdu-image-lock
+        optional: true
   prune: true
   wait: true
   timeout: 30m

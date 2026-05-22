@@ -22,8 +22,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-master
-      tag: "08c9c5cd8b9e80e9cce05666d3fd425dbdf2d18b"
+      repository: ${CRS_CONVERSION_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/reference/crs-conversion-service/crs-conversion-service-master}
+      tag: "${CRS_CONVERSION_IMAGE_TAG:=fe31da6b2010e506f91af24b7026c8455fdaa238}"
     nodeSelector:
       agentpool: osdu
     tolerations:

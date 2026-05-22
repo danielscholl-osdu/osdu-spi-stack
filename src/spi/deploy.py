@@ -41,6 +41,12 @@ from .ingress import (
     get_ingress_ip,
     resolve_post_deploy_inputs,
 )
+from .images import (
+    DEFAULT_IMAGE_BRANCH,
+    ImageResolutionError,
+    render_image_lock_configmap,
+    resolve_image_lock,
+)
 from .paths import REPO_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
 from .shell import kubectl_apply_yaml, run_command
@@ -136,6 +142,34 @@ def _create_spi_init_values(config: Config) -> None:
         f"spi-init-values ConfigMap created for partitions: "
         f"{', '.join(config.data_partitions)}"
     )
+
+
+def _resolve_image_lock(image_branch: str) -> str:
+    """Resolve current OSDU service images and render the Flux image lock."""
+
+    console.print("\n[bold]Resolving OSDU service images...[/bold]")
+    try:
+        resolved = resolve_image_lock(branch=image_branch)
+    except ImageResolutionError as exc:
+        console.print(f"[error]Unable to resolve OSDU service images: {exc}[/error]")
+        raise
+
+    for name, image in resolved.items():
+        console.print(
+            f"  [success]{name}[/success] -> "
+            f"{image.repository.split('/')[-1]}:{image.tag[:12]}"
+        )
+
+    return render_image_lock_configmap(resolved, branch=image_branch)
+
+
+def _create_image_lock(image_lock_yaml: str) -> None:
+    """Apply the generated osdu-image-lock ConfigMap."""
+
+    console.print("\n[bold]Creating OSDU image lock...[/bold]")
+    display_yaml(image_lock_yaml, "ConfigMap: osdu-image-lock")
+    kubectl_apply_yaml(image_lock_yaml, "apply osdu-image-lock ConfigMap")
+    display_result("osdu-image-lock ConfigMap created")
 
 
 def _write_keyvault_bootstrap_secrets(
@@ -235,13 +269,24 @@ def _pin_gitops_source() -> None:
     )
 
 
-def deploy_azure(config: Config, dry_run: bool = False) -> None:
+def deploy_azure(
+    config: Config,
+    dry_run: bool = False,
+    refresh_images: bool = True,
+    image_branch: str = DEFAULT_IMAGE_BRANCH,
+) -> None:
     """Provision Azure infra, bootstrap Kubernetes, deploy via GitOps.
 
     In ``dry_run`` mode, only the Azure PaaS Bicep preview runs; AKS, the
     Kubernetes bootstrap phase, and GitOps activation are skipped so the
     caller can inspect what would change without actually provisioning.
     """
+    image_lock_yaml = ""
+    if refresh_images and not dry_run:
+        # Resolve before provisioning so registry/API failures stop quickly and
+        # never leave a partially configured cluster with a mixed image set.
+        image_lock_yaml = _resolve_image_lock(image_branch)
+
     # For dns mode we need to resolve the DNS zone BEFORE running main.bicep
     # so the conditional external-dns-identity + DNS Zone Contributor role
     # modules get the right scope + name.
@@ -261,6 +306,8 @@ def deploy_azure(config: Config, dry_run: bool = False) -> None:
     ensure_secrets()
     create_storage_classes()
     install_gateway_api_crds()
+    if image_lock_yaml:
+        _create_image_lock(image_lock_yaml)
     _create_osdu_config(config, infra_outputs)
     _create_istio_auth(config, infra_outputs)
     _create_spi_init_values(config)
