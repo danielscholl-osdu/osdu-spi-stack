@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: ${WORKFLOW_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/data-flow/ingestion/ingestion-workflow/ingestion-workflow-master}
-      tag: "${WORKFLOW_IMAGE_TAG:=1d8dbda4bc72d3644965fa1cb9ce31ab7db2a2e5}"
+      repository: ${WORKFLOW_IMAGE_REPOSITORY}
+      tag: "${WORKFLOW_IMAGE_TAG}"
     redisTls: true
     nodeSelector:
       agentpool: osdu

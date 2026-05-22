@@ -86,6 +86,8 @@ def _replace_default(existing: str, value: str, quote: bool) -> str:
 
     if "${" in existing and ":=" in existing:
         return re.sub(r":=[^}]+", f":={value}", existing, count=1)
+    if "${" in existing:
+        return existing
     return f'"{value}"' if quote else value
 
 

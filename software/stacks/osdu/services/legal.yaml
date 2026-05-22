@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: ${LEGAL_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/security-and-compliance/legal/legal-master}
-      tag: "${LEGAL_IMAGE_TAG:=f2be39f63aabdf2e2878e9c33c0667a90c9f83b8}"
+      repository: ${LEGAL_IMAGE_REPOSITORY}
+      tag: "${LEGAL_IMAGE_TAG}"
     redisTls: true
     nodeSelector:
       agentpool: osdu

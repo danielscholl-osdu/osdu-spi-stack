@@ -316,7 +316,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: osdu-image-lock
-        optional: true
   prune: true
   wait: true
   timeout: 30m
@@ -407,7 +406,6 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: osdu-image-lock
-        optional: true
   prune: true
   wait: true
   timeout: 30m

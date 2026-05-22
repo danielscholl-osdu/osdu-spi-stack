@@ -22,8 +22,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: ${UNIT_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/reference/unit-service/unit-service-master}
-      tag: "${UNIT_IMAGE_TAG:=1f24e5f0b224f10ef42535127b6c93d61350b1e0}"
+      repository: ${UNIT_IMAGE_REPOSITORY}
+      tag: "${UNIT_IMAGE_TAG}"
     nodeSelector:
       agentpool: osdu
     tolerations:

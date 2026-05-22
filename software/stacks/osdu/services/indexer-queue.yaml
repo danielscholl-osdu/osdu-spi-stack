@@ -24,8 +24,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: ${INDEXER_QUEUE_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/indexer-queue/indexer-queue-master}
-      tag: "${INDEXER_QUEUE_IMAGE_TAG:=4cf7fa7305833a256c4df7d6fb7048d8c2328607}"
+      repository: ${INDEXER_QUEUE_IMAGE_REPOSITORY}
+      tag: "${INDEXER_QUEUE_IMAGE_TAG}"
     nodeSelector:
       agentpool: osdu
     tolerations:

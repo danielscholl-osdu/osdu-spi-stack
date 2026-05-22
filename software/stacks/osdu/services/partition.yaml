@@ -22,8 +22,8 @@ spec:
         name: osdu-spi-stack-system
   values:
     image:
-      repository: ${PARTITION_IMAGE_REPOSITORY:=community.opengroup.org:5555/osdu/platform/system/partition/partition-master}
-      tag: "${PARTITION_IMAGE_TAG:=5fd28503816232307f9ee62fe34dca340fa6bd0f}"
+      repository: ${PARTITION_IMAGE_REPOSITORY}
+      tag: "${PARTITION_IMAGE_TAG}"
     redisTls: true
     nodeSelector:
       agentpool: osdu
