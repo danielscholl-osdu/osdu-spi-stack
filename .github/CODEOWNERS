@@ -1,0 +1,10 @@
+# Identified maintainers with a deep investment in the project.
+#
+# Every change requires approval from a listed owner before merge into
+# `main`. Enforcement lives on the protected branch (Settings → Branches →
+# Branch protection rules → "Require review from Code Owners").
+#
+# Maintainers:
+#   @danielscholl   Daniel Scholl (Microsoft)
+
+* @danielscholl
