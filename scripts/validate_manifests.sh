@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Validate every kustomization.yaml under software/ by building it with
+# kustomize and piping the output through kubeconform.
+#
+# Runs locally and in CI. Exits 0 if all kustomizations render and validate,
+# nonzero if any fail. Collects all failures before exiting so PR authors
+# see the full list in one iteration instead of fix-one-push-fix-next.
+#
+# Requires: kustomize, kubeconform (both available as static binaries).
+# Flux postBuild ${VAR} placeholders are replaced with "placeholder" before
+# kubeconform so unresolved variables in string fields do not trip strict mode.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SOFTWARE_DIR="$REPO_ROOT/software"
+
+# Optional: vendored CRD schemas under schemas/ take precedence over the
+# datreeio catalog when present. Regenerate via:
+#   kubectl get crd <name> -o json | jq '.spec.versions[0].schema.openAPIV3Schema'
+LOCAL_CRD_SCHEMA_LOCATION="$REPO_ROOT/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+CRD_SCHEMA_LOCATION='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+for tool in kustomize kubeconform; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "error: $tool is required but not on PATH" >&2
+        exit 2
+    fi
+done
+
+# Replace unresolved Flux postBuild variables (${VAR}) with a literal
+# placeholder so strict kubeconform does not reject string fields containing
+# raw shell-style references.
+sub_vars() {
+    sed -E 's/\$\{[A-Z_][A-Z0-9_]*\}/placeholder/g'
+}
+
+failures=()
+count=0
+
+while IFS= read -r kustomization; do
+    dir="$(dirname "$kustomization")"
+    rel="${dir#"$REPO_ROOT/"}"
+    count=$((count + 1))
+    echo ">> $rel"
+
+    if ! build_output="$(kustomize build "$dir" 2>&1)"; then
+        echo "   FAIL: kustomize build" >&2
+        echo "$build_output" | sed 's/^/     /' >&2
+        failures+=("$rel (kustomize)")
+        continue
+    fi
+
+    if ! conform_output="$(printf '%s\n' "$build_output" | sub_vars | kubeconform \
+        -strict \
+        -ignore-missing-schemas \
+        -schema-location default \
+        -schema-location "$LOCAL_CRD_SCHEMA_LOCATION" \
+        -schema-location "$CRD_SCHEMA_LOCATION" \
+        -summary \
+        - 2>&1)"; then
+        echo "   FAIL: kubeconform" >&2
+        echo "$conform_output" | sed 's/^/     /' >&2
+        failures+=("$rel (kubeconform)")
+        continue
+    fi
+done < <(find "$SOFTWARE_DIR" -name 'kustomization.yaml' -type f | sort)
+
+if (( count == 0 )); then
+    echo "error: no kustomization.yaml files found under $SOFTWARE_DIR" >&2
+    exit 2
+fi
+
+echo ""
+if (( ${#failures[@]} > 0 )); then
+    echo "Manifest validation failed for ${#failures[@]} of $count kustomization(s):" >&2
+    printf '  - %s\n' "${failures[@]}" >&2
+    exit 1
+fi
+
+echo "All $count kustomizations built and validated successfully."
