@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest a new capability or improvement.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain point or scenario is this addressing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How might this work? What would the CLI surface look like?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why they were ruled out.
