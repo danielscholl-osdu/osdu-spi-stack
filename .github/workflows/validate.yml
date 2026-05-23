@@ -96,18 +96,38 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Check Azure secrets are available
+        id: gate
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        run: |
+          # Dependabot PRs (and PRs from forks) do not have access to repo
+          # secrets by default. Without AZURE_CLIENT_ID, the azure/login step
+          # fails outright. Detect that case and skip the rest of the job so
+          # the required status check still reports success.
+          if [ -z "$AZURE_CLIENT_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AZURE_CLIENT_ID not available (Dependabot or fork PR); skipping bicep-whatif"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
       - name: Azure login (OIDC)
+        if: steps.gate.outputs.skip != 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Install Bicep CLI
+        if: steps.gate.outputs.skip != 'true'
         run: az bicep install
       - name: Bicep build (syntax check)
+        if: steps.gate.outputs.skip != 'true'
         run: az bicep build --file infra/main.bicep
       - name: What-if deployment
+        if: steps.gate.outputs.skip != 'true'
         run: |
           az deployment group what-if \
             --resource-group spi-ci-whatif \
