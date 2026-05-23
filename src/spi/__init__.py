@@ -13,3 +13,10 @@
 # limitations under the License.
 
 """OSDU SPI Stack - Azure-native OSDU deployment with SPI services."""
+
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("spi")
+except PackageNotFoundError:
+    __version__ = "0.0.0+source"

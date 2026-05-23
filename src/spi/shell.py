@@ -32,7 +32,6 @@ from rich.syntax import Syntax
 
 from .console import console
 
-
 TRANSIENT_KUBECTL_ERRORS = (
     "connection refused",
     "connection reset by peer",
@@ -140,9 +139,7 @@ def kubectl_json(args: List[str]) -> Optional[Dict[str, Any]]:
     transparent command panel from ``run_command`` would be noise.
     """
     cmd = ["kubectl"] + args + ["-o", "json"]
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         return None
     try:

@@ -35,19 +35,19 @@ from .shell import kubectl_json
 
 # OSDU API services exposed via HTTPRoutes. Order preserved for display.
 _OSDU_API_PATHS = [
-    ("partition",       "/api/partition/v1/"),
-    ("entitlements",    "/api/entitlements/v2/"),
-    ("legal",           "/api/legal/v1/"),
-    ("schema",          "/api/schema-service/v1/"),
-    ("storage",         "/api/storage/v2/"),
-    ("search",          "/api/search/v2/"),
-    ("indexer",         "/api/indexer/v2/"),
-    ("indexer-queue",   "/api/indexer-queue/v1/"),
-    ("file",            "/api/file/v2/"),
-    ("workflow",        "/api/workflow/v1/"),
-    ("unit",            "/api/unit/v3/"),
-    ("crs-catalog",     "/api/crs/catalog/v2/"),
-    ("crs-conversion",  "/api/crs/converter/v2/"),
+    ("partition", "/api/partition/v1/"),
+    ("entitlements", "/api/entitlements/v2/"),
+    ("legal", "/api/legal/v1/"),
+    ("schema", "/api/schema-service/v1/"),
+    ("storage", "/api/storage/v2/"),
+    ("search", "/api/search/v2/"),
+    ("indexer", "/api/indexer/v2/"),
+    ("indexer-queue", "/api/indexer-queue/v1/"),
+    ("file", "/api/file/v2/"),
+    ("workflow", "/api/workflow/v1/"),
+    ("unit", "/api/unit/v3/"),
+    ("crs-catalog", "/api/crs/catalog/v2/"),
+    ("crs-conversion", "/api/crs/converter/v2/"),
 ]
 
 
@@ -137,7 +137,7 @@ def _env_from_resource_group(rg: str) -> str:
     if not rg:
         return ""
     prefix = f"{BASE_NAME}-"
-    return rg[len(prefix):] if rg.startswith(prefix) else ""
+    return rg[len(prefix) :] if rg.startswith(prefix) else ""
 
 
 def _build_partitions_rows(partitions: list, env: str) -> list:
@@ -150,12 +150,14 @@ def _build_partitions_rows(partitions: list, env: str) -> list:
     rows = []
     for i, p in enumerate(partitions):
         label = f"{p} (primary)" if i == 0 else p
-        rows.append((
-            label,
-            _cosmos_sql_name(p, env),
-            _sb_name(p, env),
-            _storage_name("osdu" + env + p, ""),
-        ))
+        rows.append(
+            (
+                label,
+                _cosmos_sql_name(p, env),
+                _sb_name(p, env),
+                _storage_name("osdu" + env + p, ""),
+            )
+        )
     return rows
 
 
@@ -293,9 +295,7 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
         "base_url": base,
         "endpoints": endpoints,
         "middleware_uis": middleware,
-        "internal_services": {
-            svc: addr for svc, addr, _hint in _build_internal_services()
-        },
+        "internal_services": {svc: addr for svc, addr, _hint in _build_internal_services()},
         "azure": {
             "resource_group": rg,
             "region": azure_ext.get("AZURE_REGION", ""),
@@ -412,9 +412,7 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
         console.print(ptable)
         console.print()
 
-    table = Table(
-        title="Internal Services (use port-forward)", border_style="cyan", expand=True
-    )
+    table = Table(title="Internal Services (use port-forward)", border_style="cyan", expand=True)
     table.add_column("Service", style="bold")
     table.add_column("Cluster Address", style="cyan")
     table.add_column("Port-Forward Command", style="yellow")
@@ -442,9 +440,7 @@ def render_info(show_secrets: bool = False, show_apis: bool = False, output_json
             console.print(table)
             console.print()
         else:
-            console.print(
-                "[dim]No credentials found -- secrets may not be deployed yet.[/dim]\n"
-            )
+            console.print("[dim]No credentials found -- secrets may not be deployed yet.[/dim]\n")
     else:
         console.print(
             "[dim]Credentials hidden by default. Re-run with '--show-secrets' "

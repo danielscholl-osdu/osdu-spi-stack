@@ -124,11 +124,13 @@ def _registry_repositories(project_id: int, image_name: str) -> list[dict]:
     repos: list[dict] = []
     page = 1
     while True:
-        query = urllib.parse.urlencode({
-            "per_page": 100,
-            "page": page,
-            "search": image_name,
-        })
+        query = urllib.parse.urlencode(
+            {
+                "per_page": 100,
+                "page": page,
+                "search": image_name,
+            }
+        )
         chunk = gitlab_get(
             f"{GITLAB_HOST}/api/v4/projects/{project_id}/registry/repositories?{query}"
         )
@@ -174,11 +176,7 @@ def _parse_gitlab_datetime(value: str) -> datetime:
 
 
 def _newest_immutable_tag(project_id: int, repo_id: int, tags: Iterable[dict]) -> dict | None:
-    details = [
-        _tag_detail(project_id, repo_id, tag["name"])
-        for tag in tags
-        if tag.get("name")
-    ]
+    details = [_tag_detail(project_id, repo_id, tag["name"]) for tag in tags if tag.get("name")]
     immutable = [tag for tag in details if _SHA_TAG_RE.match(tag.get("name", ""))]
     candidates = immutable or details
     if not candidates:

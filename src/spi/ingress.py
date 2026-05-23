@@ -33,7 +33,6 @@ from .config import Config, IngressMode
 from .console import console, display_result, display_yaml
 from .shell import kubectl_apply_yaml, kubectl_json
 
-
 ISTIO_INGRESS_NAMESPACE = "aks-istio-ingress"
 # Istio with gatewayClassName=istio provisions a LoadBalancer Service
 # named "<gateway-name>-istio" per Gateway CR. Our Gateway is "spi-gateway".
@@ -49,8 +48,7 @@ def resolve_ingress_mode(cli_flag: Optional[IngressMode]) -> IngressMode:
         return IngressMode(env_val)
     if env_val:
         console.print(
-            f"[warning]Invalid SPI_INGRESS_MODE '{env_val}'; "
-            f"falling back to 'azure'.[/warning]"
+            f"[warning]Invalid SPI_INGRESS_MODE '{env_val}'; falling back to 'azure'.[/warning]"
         )
     return IngressMode.AZURE
 
@@ -68,7 +66,8 @@ def discover_dns_zone() -> tuple:
     """
     result = subprocess.run(
         ["az", "network", "dns", "zone", "list", "-o", "json"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         console.print(
@@ -114,9 +113,7 @@ def compute_ingress_fqdn(dns_label: str, location: str) -> str:
 
 def get_ingress_ip() -> str:
     """Return the current IP (or hostname) of the Istio ingress LB. Empty if unresolved."""
-    data = kubectl_json(
-        ["-n", ISTIO_INGRESS_NAMESPACE, "get", "svc", ISTIO_INGRESS_SERVICE]
-    )
+    data = kubectl_json(["-n", ISTIO_INGRESS_NAMESPACE, "get", "svc", ISTIO_INGRESS_SERVICE])
     if not data:
         return ""
     ingresses = data.get("status", {}).get("loadBalancer", {}).get("ingress", [])
@@ -144,8 +141,9 @@ def resolve_post_deploy_inputs(config: Config) -> None:
             display_result(f"Using DNS zone: {zone} (rg: {rg})")
 
 
-def create_ingress_config(config: Config, external_dns_client_id: str,
-                          tenant_id: str, gateway_ip: str) -> None:
+def create_ingress_config(
+    config: Config, external_dns_client_id: str, tenant_id: str, gateway_ip: str
+) -> None:
     """Write the spi-ingress-config ConfigMap in flux-system.
 
     The ConfigMap is consumed by Flux Kustomizations in the
@@ -164,9 +162,7 @@ def create_ingress_config(config: Config, external_dns_client_id: str,
     if config.ingress_mode == IngressMode.AZURE:
         data["INGRESS_FQDN"] = config.ingress_fqdn
         data["DNS_LABEL"] = config.dns_label
-        data["ACME_EMAIL"] = (
-            config.acme_email or f"admin@{config.ingress_fqdn}"
-        )
+        data["ACME_EMAIL"] = config.acme_email or f"admin@{config.ingress_fqdn}"
     elif config.ingress_mode == IngressMode.DNS:
         data["DNS_ZONE"] = config.dns_zone
         data["DNS_ZONE_RG"] = config.dns_zone_rg

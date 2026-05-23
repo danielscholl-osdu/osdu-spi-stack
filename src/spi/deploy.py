@@ -35,17 +35,17 @@ from .bootstrap import (
 )
 from .config import Config, IngressMode
 from .console import console, display_result, display_yaml
-from .ingress import (
-    create_ingress_config,
-    discover_dns_zone,
-    get_ingress_ip,
-    resolve_post_deploy_inputs,
-)
 from .images import (
     DEFAULT_IMAGE_BRANCH,
     ImageResolutionError,
     render_image_lock_configmap,
     resolve_image_lock,
+)
+from .ingress import (
+    create_ingress_config,
+    discover_dns_zone,
+    get_ingress_ip,
+    resolve_post_deploy_inputs,
 )
 from .paths import REPO_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
@@ -139,8 +139,7 @@ def _create_spi_init_values(config: Config) -> None:
     display_yaml(yaml_content, "ConfigMap: spi-init-values")
     kubectl_apply_yaml(yaml_content, "apply spi-init-values ConfigMap")
     display_result(
-        f"spi-init-values ConfigMap created for partitions: "
-        f"{', '.join(config.data_partitions)}"
+        f"spi-init-values ConfigMap created for partitions: {', '.join(config.data_partitions)}"
     )
 
 
@@ -156,8 +155,7 @@ def _resolve_image_lock(image_branch: str) -> str:
 
     for name, image in resolved.items():
         console.print(
-            f"  [success]{name}[/success] -> "
-            f"{image.repository.split('/')[-1]}:{image.tag[:12]}"
+            f"  [success]{name}[/success] -> {image.repository.split('/')[-1]}:{image.tag[:12]}"
         )
 
     return render_image_lock_configmap(resolved, branch=image_branch)
@@ -200,20 +198,29 @@ def _write_keyvault_bootstrap_secrets(
         ("redis-password", redis_password),
     ]
     for p in config.data_partitions:
-        secrets_to_write.extend([
-            (f"{p}-elastic-endpoint", elastic_endpoint),
-            (f"{p}-elastic-username", "elastic"),
-            (f"{p}-elastic-password", elastic_password),
-        ])
+        secrets_to_write.extend(
+            [
+                (f"{p}-elastic-endpoint", elastic_endpoint),
+                (f"{p}-elastic-username", "elastic"),
+                (f"{p}-elastic-password", elastic_password),
+            ]
+        )
 
     for name, value in secrets_to_write:
         run_command(
             [
-                "az", "keyvault", "secret", "set",
-                "--vault-name", keyvault_name,
-                "--name", name,
-                "--value", value,
-                "--output", "none",
+                "az",
+                "keyvault",
+                "secret",
+                "set",
+                "--vault-name",
+                keyvault_name,
+                "--name",
+                name,
+                "--value",
+                value,
+                "--output",
+                "none",
             ],
             description=f"Set KV secret: {name}",
             display=False,
@@ -235,10 +242,12 @@ def _pin_gitops_source() -> None:
 
     wait_result = subprocess.run(
         [
-            "kubectl", "wait",
+            "kubectl",
+            "wait",
             "--for=condition=Ready",
             f"gitrepository/{GITREPO_NAME}",
-            "-n", "flux-system",
+            "-n",
+            "flux-system",
             "--timeout=120s",
         ],
         capture_output=True,
@@ -255,10 +264,15 @@ def _pin_gitops_source() -> None:
 
     run_command(
         [
-            "kubectl", "patch", "gitrepository", GITREPO_NAME,
-            "-n", "flux-system",
+            "kubectl",
+            "patch",
+            "gitrepository",
+            GITREPO_NAME,
+            "-n",
+            "flux-system",
             "--type=merge",
-            "-p", '{"spec":{"suspend":true}}',
+            "-p",
+            '{"spec":{"suspend":true}}',
         ],
         description="Suspend GitRepository (pin to deploy commit)",
         check=False,
@@ -364,9 +378,7 @@ def cleanup_azure(config: Config) -> None:
     """Delete Azure resource group and all resources."""
     console.print("\n[bold]Cleaning up Azure resources...[/bold]")
     result = run_command(
-        ["az", "group", "delete",
-         "--name", config.resource_group,
-         "--yes", "--no-wait"],
+        ["az", "group", "delete", "--name", config.resource_group, "--yes", "--no-wait"],
         description=f"Delete resource group: {config.resource_group}",
         check=False,
     )

@@ -70,11 +70,11 @@ class Config(BaseModel):
     acr_name: str = ""
     # Ingress / DNS
     ingress_mode: IngressMode = IngressMode.AZURE
-    dns_zone: str = ""           # dns mode: auto-discovered if empty
-    dns_zone_rg: str = ""        # dns mode: derived from zone lookup
-    ingress_prefix: str = ""     # defaults to env
-    acme_email: str = ""         # defaults to admin@<fqdn>|<zone>
-    ingress_fqdn: str = ""       # azure mode: resolved LB FQDN
+    dns_zone: str = ""  # dns mode: auto-discovered if empty
+    dns_zone_rg: str = ""  # dns mode: derived from zone lookup
+    ingress_prefix: str = ""  # defaults to env
+    acme_email: str = ""  # defaults to admin@<fqdn>|<zone>
+    ingress_fqdn: str = ""  # azure mode: resolved LB FQDN
 
     @staticmethod
     def from_env(env: str, **kwargs) -> "Config":
@@ -118,9 +118,7 @@ class Config(BaseModel):
 
         duplicates = sorted({p for p in partitions if partitions.count(p) > 1})
         if duplicates:
-            raise ValueError(
-                f"data_partitions contains duplicate names: {duplicates}"
-            )
+            raise ValueError(f"data_partitions contains duplicate names: {duplicates}")
 
         sanitized_env = self.env.replace("-", "").replace("_", "")
         for p in partitions:

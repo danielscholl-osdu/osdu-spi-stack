@@ -32,7 +32,8 @@ def _get_current_context() -> str:
     """Return the current kubectl context name, or empty string on failure."""
     result = subprocess.run(
         ["kubectl", "config", "current-context"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         return ""
@@ -50,9 +51,7 @@ def _has_spi_fingerprint() -> bool:
     are not yet installed (e.g., right after ``spi up`` and before the
     extension has installed them).
     """
-    data = kubectl_json(
-        ["get", "gitrepository", "osdu-spi-stack-system", "-n", "flux-system"]
-    )
+    data = kubectl_json(["get", "gitrepository", "osdu-spi-stack-system", "-n", "flux-system"])
     if data is not None:
         return True
 
@@ -62,14 +61,26 @@ def _has_spi_fingerprint() -> bool:
         return False
     # Resource group matches cluster name for spi-stack deployments
     result = subprocess.run(
-        ["az", "k8s-configuration", "flux", "show",
-         "--resource-group", cluster_name,
-         "--cluster-name", cluster_name,
-         "--cluster-type", "managedClusters",
-         "--name", "osdu-spi-stack-system",
-         "--query", "provisioningState",
-         "--output", "tsv"],
-        capture_output=True, text=True,
+        [
+            "az",
+            "k8s-configuration",
+            "flux",
+            "show",
+            "--resource-group",
+            cluster_name,
+            "--cluster-name",
+            cluster_name,
+            "--cluster-type",
+            "managedClusters",
+            "--name",
+            "osdu-spi-stack-system",
+            "--query",
+            "provisioningState",
+            "--output",
+            "tsv",
+        ],
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
@@ -83,7 +94,9 @@ def verify_spi_cluster() -> str:
     """
     if os.environ.get("SPI_SKIP_GUARD", "") == "1":
         ctx = _get_current_context() or "unknown"
-        console.print(f"  [warning]Cluster guard bypassed (SPI_SKIP_GUARD=1), context: {ctx}[/warning]")
+        console.print(
+            f"  [warning]Cluster guard bypassed (SPI_SKIP_GUARD=1), context: {ctx}[/warning]"
+        )
         return ctx
 
     ctx = _get_current_context()
@@ -93,15 +106,23 @@ def verify_spi_cluster() -> str:
         raise typer.Exit(code=1)
 
     if not _is_spi_context(ctx):
-        console.print(f"[error]Current context '{ctx}' does not look like an spi-stack cluster.[/error]")
+        console.print(
+            f"[error]Current context '{ctx}' does not look like an spi-stack cluster.[/error]"
+        )
         console.print(f"[dim]Expected a context starting with '{BASE_NAME}'.[/dim]")
         console.print("[dim]If this is intentional, set SPI_SKIP_GUARD=1 to bypass.[/dim]")
         raise typer.Exit(code=1)
 
     if not _has_spi_fingerprint():
-        console.print(f"[error]Context '{ctx}' is set, but the cluster has no spi-stack deployment.[/error]")
-        console.print("[dim]The osdu-spi-stack-system GitRepository was not found in flux-system.[/dim]")
-        console.print("[dim]Run 'uv run spi up' to deploy, or set SPI_SKIP_GUARD=1 to bypass.[/dim]")
+        console.print(
+            f"[error]Context '{ctx}' is set, but the cluster has no spi-stack deployment.[/error]"
+        )
+        console.print(
+            "[dim]The osdu-spi-stack-system GitRepository was not found in flux-system.[/dim]"
+        )
+        console.print(
+            "[dim]Run 'uv run spi up' to deploy, or set SPI_SKIP_GUARD=1 to bypass.[/dim]"
+        )
         raise typer.Exit(code=1)
 
     return ctx
@@ -109,9 +130,7 @@ def verify_spi_cluster() -> str:
 
 def get_suspend_status() -> bool:
     """Check if the Flux GitRepository source is suspended."""
-    data = kubectl_json(
-        ["get", "gitrepository", "osdu-spi-stack-system", "-n", "flux-system"]
-    )
+    data = kubectl_json(["get", "gitrepository", "osdu-spi-stack-system", "-n", "flux-system"])
     if not data:
         return False
     return bool(data.get("spec", {}).get("suspend", False))

@@ -63,6 +63,7 @@ INFRA_AKS_BICEP = REPO_ROOT / "infra" / "aks.bicep"
 # re-derive names.
 # ─────────────────────────────────────────────────────────────
 
+
 def _storage_name(prefix: str, env: str) -> str:
     """Generate a storage account name (lowercase alphanumeric, 3-24 chars)."""
     safe = (prefix + env).replace("-", "").replace("_", "").lower()
@@ -88,13 +89,21 @@ def _cosmos_gremlin_name(env: str) -> str:
 # Phase 1: Core infrastructure (imperative; Bicep-incompatible)
 # ─────────────────────────────────────────────────────────────
 
+
 def create_resource_group(config: Config):
     console.print("\n[bold]Creating resource group...[/bold]")
     run_command(
-        ["az", "group", "create",
-         "--name", config.resource_group,
-         "--location", config.location,
-         "--output", "json"],
+        [
+            "az",
+            "group",
+            "create",
+            "--name",
+            config.resource_group,
+            "--location",
+            config.location,
+            "--output",
+            "json",
+        ],
         description=f"Create resource group: {config.resource_group}",
     )
     display_result(f"Resource group {config.resource_group} ready")
@@ -117,8 +126,7 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
     header = "Previewing" if dry_run else "Deploying"
     console.print(f"\n[bold]{header} AKS Automatic cluster via Bicep...[/bold]")
     console.print(
-        "  [info]Cluster is declared in infra/aks.bicep via the AVM "
-        "managed-cluster module.[/info]"
+        "  [info]Cluster is declared in infra/aks.bicep via the AVM managed-cluster module.[/info]"
     )
     aks_outputs = run_bicep_deployment(
         template_path=str(INFRA_AKS_BICEP),
@@ -139,10 +147,16 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
 
     console.print("\n[bold]Fetching cluster credentials...[/bold]")
     run_command(
-        ["az", "aks", "get-credentials",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--overwrite-existing"],
+        [
+            "az",
+            "aks",
+            "get-credentials",
+            "--resource-group",
+            config.resource_group,
+            "--name",
+            config.cluster_name,
+            "--overwrite-existing",
+        ],
         description="Merge kubeconfig",
     )
 
@@ -195,12 +209,22 @@ def _grant_deployer_cluster_admin(config: Config, cluster_resource_id: str):
 
     console.print("\n[bold]Granting deployer cluster-admin...[/bold]")
     run_command(
-        ["az", "role", "assignment", "create",
-         "--role", "Azure Kubernetes Service RBAC Cluster Admin",
-         "--assignee-object-id", user_oid,
-         "--assignee-principal-type", principal_type,
-         "--scope", cluster_resource_id,
-         "--output", "none"],
+        [
+            "az",
+            "role",
+            "assignment",
+            "create",
+            "--role",
+            "Azure Kubernetes Service RBAC Cluster Admin",
+            "--assignee-object-id",
+            user_oid,
+            "--assignee-principal-type",
+            principal_type,
+            "--scope",
+            cluster_resource_id,
+            "--output",
+            "none",
+        ],
         description=f"Assign cluster-admin to {user_oid[:8]}...",
         # Idempotent: on re-deploys the assignment already exists and the
         # CLI returns non-zero. We tolerate that and fall through to the
@@ -239,11 +263,19 @@ def _wait_for_cluster_rbac(timeout_seconds: int = 300):
 def _ensure_istio_cni_chaining(config: Config):
     """Enable Istio CNI chaining (not expressible in AVM managed-cluster v0.13.0)."""
     result = run_command(
-        ["az", "aks", "show",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name,
-         "--query", "serviceMeshProfile.istio.components.proxyRedirectionMechanism",
-         "--output", "tsv"],
+        [
+            "az",
+            "aks",
+            "show",
+            "--resource-group",
+            config.resource_group,
+            "--name",
+            config.cluster_name,
+            "--query",
+            "serviceMeshProfile.istio.components.proxyRedirectionMechanism",
+            "--output",
+            "tsv",
+        ],
         description="Check Istio CNI chaining status",
         display=False,
     )
@@ -253,9 +285,16 @@ def _ensure_istio_cni_chaining(config: Config):
 
     console.print("\n[bold]Enabling Istio CNI chaining...[/bold]")
     run_command(
-        ["az", "aks", "mesh", "enable-istio-cni",
-         "--resource-group", config.resource_group,
-         "--name", config.cluster_name],
+        [
+            "az",
+            "aks",
+            "mesh",
+            "enable-istio-cni",
+            "--resource-group",
+            config.resource_group,
+            "--name",
+            config.cluster_name,
+        ],
         description="Enable Istio CNI chaining",
     )
     display_result("Istio CNI chaining enabled")
@@ -266,6 +305,7 @@ def _ensure_istio_cni_chaining(config: Config):
 # list-deleted queries)
 # ─────────────────────────────────────────────────────────────
 
+
 def _recover_soft_deleted_keyvault(config: Config):
     """If the target Key Vault was previously soft-deleted, recover it.
 
@@ -274,21 +314,36 @@ def _recover_soft_deleted_keyvault(config: Config):
     still occupies the namespace.
     """
     deleted_check = run_command(
-        ["az", "keyvault", "list-deleted",
-         "--query", f"[?name=='{config.keyvault_name}']",
-         "--output", "json"],
+        [
+            "az",
+            "keyvault",
+            "list-deleted",
+            "--query",
+            f"[?name=='{config.keyvault_name}']",
+            "--output",
+            "json",
+        ],
         description=f"Check for soft-deleted Key Vault: {config.keyvault_name}",
         check=False,
         display=False,
     )
     deleted_vaults = json.loads(deleted_check.stdout or "[]")
     if deleted_vaults:
-        console.print(f"\n[warning]Recovering soft-deleted Key Vault '{config.keyvault_name}'...[/warning]")
+        console.print(
+            f"\n[warning]Recovering soft-deleted Key Vault '{config.keyvault_name}'...[/warning]"
+        )
         run_command(
-            ["az", "keyvault", "recover",
-             "--name", config.keyvault_name,
-             "--resource-group", config.resource_group,
-             "--output", "json"],
+            [
+                "az",
+                "keyvault",
+                "recover",
+                "--name",
+                config.keyvault_name,
+                "--resource-group",
+                config.resource_group,
+                "--output",
+                "json",
+            ],
             description=f"Recover Key Vault: {config.keyvault_name}",
         )
         display_result(f"Key Vault {config.keyvault_name} recovered")
@@ -297,6 +352,7 @@ def _recover_soft_deleted_keyvault(config: Config):
 # ─────────────────────────────────────────────────────────────
 # Bicep parameter assembly and output reshaping
 # ─────────────────────────────────────────────────────────────
+
 
 def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
     """Translate Config into the parameter dict consumed by infra/main.bicep."""
@@ -311,12 +367,8 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
         "primaryPartition": config.primary_partition,
         "gremlinAccountName": _cosmos_gremlin_name(config.env),
         "commonStorageName": _storage_name("osdu" + config.env + "common", ""),
-        "cosmosSqlNames": [
-            _cosmos_sql_name(p, config.env) for p in config.data_partitions
-        ],
-        "serviceBusNames": [
-            _sb_name(p, config.env) for p in config.data_partitions
-        ],
+        "cosmosSqlNames": [_cosmos_sql_name(p, config.env) for p in config.data_partitions],
+        "serviceBusNames": [_sb_name(p, config.env) for p in config.data_partitions],
         "partitionStorageNames": [
             _storage_name("osdu" + config.env + p, "") for p in config.data_partitions
         ],
@@ -382,6 +434,7 @@ def _reshape_bicep_outputs(bicep_outputs: Dict[str, Any]) -> Dict[str, Any]:
 # Orchestrator
 # ─────────────────────────────────────────────────────────────
 
+
 def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, Any]:
     """Provision all Azure PaaS resources. Returns infra_outputs for K8s bootstrap.
 
@@ -408,8 +461,7 @@ def provision_azure_infra(config: Config, dry_run: bool = False) -> Dict[str, An
     outputs["tenant_id"] = account.get("tenantId", "")
     outputs["subscription_id"] = account.get("id", "")
     console.print(
-        f"  [info]Subscription: {account.get('name', 'unknown')} "
-        f"({account.get('id', '')})[/info]"
+        f"  [info]Subscription: {account.get('name', 'unknown')} ({account.get('id', '')})[/info]"
     )
 
     create_resource_group(config)

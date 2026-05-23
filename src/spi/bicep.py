@@ -45,8 +45,7 @@ def run_bicep_deployment(
 
     params_content = {
         "$schema": (
-            "https://schema.management.azure.com/schemas/2019-04-01/"
-            "deploymentParameters.json#"
+            "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#"
         ),
         "contentVersion": "1.0.0.0",
         "parameters": {k: {"value": v} for k, v in parameters.items()},
@@ -61,22 +60,37 @@ def run_bicep_deployment(
     try:
         if what_if:
             cmd = [
-                "az", "deployment", "group", "what-if",
-                "--resource-group", resource_group,
-                "--template-file", template_path,
-                "--parameters", f"@{params_file}",
+                "az",
+                "deployment",
+                "group",
+                "what-if",
+                "--resource-group",
+                resource_group,
+                "--template-file",
+                template_path,
+                "--parameters",
+                f"@{params_file}",
             ]
             run_command(cmd, description=f"What-if: {deployment_name}")
             return {}
 
         cmd = [
-            "az", "deployment", "group", "create",
-            "--resource-group", resource_group,
-            "--template-file", template_path,
-            "--parameters", f"@{params_file}",
-            "--name", deployment_name,
-            "--mode", "Incremental",
-            "--output", "json",
+            "az",
+            "deployment",
+            "group",
+            "create",
+            "--resource-group",
+            resource_group,
+            "--template-file",
+            template_path,
+            "--parameters",
+            f"@{params_file}",
+            "--name",
+            deployment_name,
+            "--mode",
+            "Incremental",
+            "--output",
+            "json",
         ]
         console.print(
             f"  [info]Monitor progress in a separate terminal with:[/info]\n"
@@ -88,9 +102,7 @@ def run_bicep_deployment(
             f"[bold]Bicep deployment in progress: {deployment_name} "
             f"(this takes 10-15 minutes)...[/bold]"
         ):
-            result = run_command(
-                cmd, description=f"Bicep deployment: {deployment_name}"
-            )
+            result = run_command(cmd, description=f"Bicep deployment: {deployment_name}")
 
         result_json = json.loads(result.stdout) if result.stdout else {}
         raw_outputs = result_json.get("properties", {}).get("outputs", {})
