@@ -17,18 +17,25 @@
 import json
 import platform
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 
 import typer
 
 from .console import console
 
-
 # ---------------------------------------------------------------------------
 # Tool registry -- single source of truth for CLI prerequisites
 # ---------------------------------------------------------------------------
 
-TOOL_REGISTRY = {
+
+class ToolInfo(TypedDict, total=False):
+    check_args: list[str]
+    check_cmd: list[str]
+    description: str
+    install: dict[str, str]
+
+
+TOOL_REGISTRY: dict[str, ToolInfo] = {
     "az": {
         "check_args": ["--version"],
         "description": "Azure CLI",
@@ -56,9 +63,9 @@ TOOL_REGISTRY = {
         "install": {
             "darwin": "brew install kubectl",
             "linux": (
-                "curl -LO \"https://dl.k8s.io/release/"
+                'curl -LO "https://dl.k8s.io/release/'
                 "$(curl -sL https://dl.k8s.io/release/stable.txt)"
-                "/bin/linux/amd64/kubectl\" && chmod +x kubectl"
+                '/bin/linux/amd64/kubectl" && chmod +x kubectl'
                 " && sudo mv kubectl /usr/local/bin/"
             ),
             "windows": "winget install Kubernetes.kubectl",
@@ -93,6 +100,7 @@ PREREQ_TOOLS: List[str] = list(TOOL_REGISTRY.keys())
 # Platform detection
 # ---------------------------------------------------------------------------
 
+
 def detect_platform() -> str:
     system = platform.system().lower()
     if system in ("darwin", "linux", "windows"):
@@ -108,6 +116,7 @@ def _is_windows() -> bool:
 # Tool checking
 # ---------------------------------------------------------------------------
 
+
 def check_tool_status(name: str, check_args: Optional[list] = None) -> tuple:
     """Check if a tool is installed and capture version output."""
     info = TOOL_REGISTRY.get(name, {})
@@ -118,7 +127,10 @@ def check_tool_status(name: str, check_args: Optional[list] = None) -> tuple:
         cmd = [name] + args
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=10,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
             shell=_is_windows(),
         )
         if result.returncode == 0:
@@ -140,6 +152,7 @@ def get_install_hint(tool_name: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Pre-flight check used by ``spi up`` / ``spi down``
 # ---------------------------------------------------------------------------
+
 
 def check_prerequisites(tools: List[str]) -> None:
     """Verify that each tool is installed; exit on the first missing one."""
@@ -167,6 +180,7 @@ def check_prerequisites(tools: List[str]) -> None:
 # ---------------------------------------------------------------------------
 # Full check run (``spi check``)
 # ---------------------------------------------------------------------------
+
 
 def run_checks() -> list:
     results = []

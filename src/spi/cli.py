@@ -116,12 +116,13 @@ def _build_config(
 # Subcommands
 # ---------------------------------------------------------------------------
 
+
 @app.command()
 def check(
     output_json: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
 ):
     """Validate that required CLI tools are installed."""
-    from .checks import run_checks, results_to_json
+    from .checks import results_to_json, run_checks
 
     results = run_checks()
     missing = sum(1 for r in results if not r["installed"])
@@ -152,7 +153,9 @@ def check(
     if missing == 0:
         console.print(f"\n[success]All {len(results)} tools available.[/success]")
     else:
-        console.print(f"\n[warning]{installed}/{len(results)} installed, {missing} missing.[/warning]")
+        console.print(
+            f"\n[warning]{installed}/{len(results)} installed, {missing} missing.[/warning]"
+        )
         raise typer.Exit(code=1)
 
 
@@ -162,33 +165,41 @@ def up(
     env: str = typer.Option(..., "--env", help="Environment name (required, e.g. dev1, test)"),
     repo_url: str = typer.Option(
         "https://github.com/danielscholl-osdu/osdu-spi-stack.git",
-        "--repo", help="Git repository URL"),
+        "--repo",
+        help="Git repository URL",
+    ),
     branch: str = typer.Option("main", "--branch", help="Git branch"),
     location: str = typer.Option("eastus2", "--location", help="Azure region"),
     data_partitions: Optional[List[str]] = typer.Option(
-        None, "--partition", help="Data partition names (can specify multiple)"),
+        None, "--partition", help="Data partition names (can specify multiple)"
+    ),
     ingress_mode: Optional[IngressMode] = typer.Option(
-        None, "--ingress-mode",
+        None,
+        "--ingress-mode",
         help="Ingress mode: azure (default; auto-FQDN + TLS) or dns (custom zone). "
-             "Also honors SPI_INGRESS_MODE env var.",
+        "Also honors SPI_INGRESS_MODE env var.",
     ),
     dns_zone: str = typer.Option(
-        "", "--dns-zone",
+        "",
+        "--dns-zone",
         help="Azure DNS zone to use in dns mode. Auto-discovered from the current "
-             "subscription if omitted and exactly one zone exists.",
+        "subscription if omitted and exactly one zone exists.",
     ),
     ingress_prefix: str = typer.Option(
-        "", "--ingress-prefix",
+        "",
+        "--ingress-prefix",
         help="Hostname prefix used in dns mode. Defaults to the --env value.",
     ),
     acme_email: str = typer.Option(
-        "", "--acme-email",
+        "",
+        "--acme-email",
         help="Contact email for Let's Encrypt ACME account. Also honors SPI_ACME_EMAIL.",
     ),
     dry_run: bool = typer.Option(
-        False, "--dry-run",
+        False,
+        "--dry-run",
         help="Preview Azure PaaS changes via Bicep what-if. Creates the resource group "
-             "(required by what-if) but skips AKS, Kubernetes bootstrap, and GitOps.",
+        "(required by what-if) but skips AKS, Kubernetes bootstrap, and GitOps.",
     ),
     refresh_images: bool = typer.Option(
         True,
@@ -206,8 +217,11 @@ def up(
         profile = Profile.CORE
 
     config = _build_config(
-        profile=profile, env=env, repo_url=repo_url,
-        branch=branch, location=location,
+        profile=profile,
+        env=env,
+        repo_url=repo_url,
+        branch=branch,
+        location=location,
         data_partitions=data_partitions,
         ingress_mode=resolve_ingress_mode(ingress_mode),
         dns_zone=dns_zone,
@@ -228,6 +242,7 @@ def up(
 
     try:
         from .deploy import deploy_azure
+
         deploy_azure(
             config,
             dry_run=dry_run,
@@ -245,7 +260,9 @@ def up(
             )
         else:
             _show_next_steps(config)
-            console.print("\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]")
+            console.print(
+                "\n[success]SPI Stack deployment initiated. Flux is reconciling in the background.[/success]"
+            )
             console.print(
                 "[dim]Environment is pinned to the current commit. "
                 "Run 'spi reconcile' to pull updates when ready.[/dim]\n"
@@ -268,19 +285,25 @@ def down(
     check_prerequisites(["az"])
 
     from .deploy import cleanup_azure
+
     cleanup_azure(config)
 
 
 @app.command()
 def info(
-    show_secrets: bool = typer.Option(False, "--show-secrets", help="Display live Kubernetes credentials"),
-    show_apis: bool = typer.Option(False, "--show-apis", help="Expand the full OSDU API endpoint list"),
+    show_secrets: bool = typer.Option(
+        False, "--show-secrets", help="Display live Kubernetes credentials"
+    ),
+    show_apis: bool = typer.Option(
+        False, "--show-apis", help="Expand the full OSDU API endpoint list"
+    ),
     output_json: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
 ):
     """Show cluster access endpoints and optional credentials."""
     ctx = verify_spi_cluster()
 
     from .info import render_info
+
     if not output_json:
         console.print(f"  [dim]Cluster context: {ctx}[/dim]")
     render_info(show_secrets=show_secrets, show_apis=show_apis, output_json=output_json)
@@ -295,6 +318,7 @@ def status(
     console.print(f"  [dim]Cluster context: {ctx}[/dim]")
 
     from .status import render_status, watch_status
+
     if watch:
         watch_status()
     else:
@@ -304,7 +328,9 @@ def status(
 @app.command()
 def reconcile(
     suspend: bool = typer.Option(False, "--suspend", help="Freeze: stop Flux auto-reconciliation"),
-    resume: bool = typer.Option(False, "--resume", help="Unfreeze: resume Flux auto-reconciliation"),
+    resume: bool = typer.Option(
+        False, "--resume", help="Unfreeze: resume Flux auto-reconciliation"
+    ),
     refresh_images: bool = typer.Option(
         False,
         "--refresh-images",
@@ -334,9 +360,17 @@ def reconcile(
     if suspend:
         console.print("\n[bold]Suspending GitRepository...[/bold]")
         run_command(
-            ["kubectl", "patch", "gitrepository", "osdu-spi-stack-system",
-             "-n", "flux-system", "-p", '{"spec":{"suspend":true}}',
-             "--type=merge"],
+            [
+                "kubectl",
+                "patch",
+                "gitrepository",
+                "osdu-spi-stack-system",
+                "-n",
+                "flux-system",
+                "-p",
+                '{"spec":{"suspend":true}}',
+                "--type=merge",
+            ],
             description="Suspend GitRepository (freeze reconciliation)",
         )
         console.print("[warning]GitRepository suspended.[/warning]")
@@ -346,9 +380,17 @@ def reconcile(
     if resume:
         console.print("\n[bold]Resuming GitRepository...[/bold]")
         run_command(
-            ["kubectl", "patch", "gitrepository", "osdu-spi-stack-system",
-             "-n", "flux-system", "-p", '{"spec":{"suspend":false}}',
-             "--type=merge"],
+            [
+                "kubectl",
+                "patch",
+                "gitrepository",
+                "osdu-spi-stack-system",
+                "-n",
+                "flux-system",
+                "-p",
+                '{"spec":{"suspend":false}}',
+                "--type=merge",
+            ],
             description="Resume GitRepository (unfreeze reconciliation)",
         )
         console.print("[success]GitRepository resumed.[/success]")
@@ -364,8 +406,7 @@ def reconcile(
 
         for name, image in resolved.items():
             console.print(
-                f"  [success]{name}[/success] -> "
-                f"{image.repository.split('/')[-1]}:{image.tag[:12]}"
+                f"  [success]{name}[/success] -> {image.repository.split('/')[-1]}:{image.tag[:12]}"
             )
 
         image_lock_yaml = render_image_lock_configmap(resolved, branch=image_branch)
@@ -375,19 +416,28 @@ def reconcile(
 
     # Default: force reconcile
     if get_suspend_status():
-        console.print(Panel(
-            "[bold yellow]GitRepository is currently SUSPENDED.[/bold yellow]\n"
-            "This reconcile is a one-shot trigger; Flux will not auto-reconcile future commits.\n"
-            "[dim]Use --resume to unfreeze, or --suspend to re-freeze after.[/dim]",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                "[bold yellow]GitRepository is currently SUSPENDED.[/bold yellow]\n"
+                "This reconcile is a one-shot trigger; Flux will not auto-reconcile future commits.\n"
+                "[dim]Use --resume to unfreeze, or --suspend to re-freeze after.[/dim]",
+                border_style="yellow",
+            )
+        )
 
     ts = datetime.datetime.now().isoformat()
     console.print("\n[bold]Reconciling...[/bold]")
 
     run_command(
-        ["kubectl", "annotate", "--overwrite", "gitrepository/osdu-spi-stack-system",
-         "-n", "flux-system", f"reconcile.fluxcd.io/requestedAt={ts}"],
+        [
+            "kubectl",
+            "annotate",
+            "--overwrite",
+            "gitrepository/osdu-spi-stack-system",
+            "-n",
+            "flux-system",
+            f"reconcile.fluxcd.io/requestedAt={ts}",
+        ],
         description="Trigger GitRepository reconciliation",
     )
 
@@ -399,8 +449,15 @@ def reconcile(
         "spi-osdu-reference",
     ]:
         run_command(
-            ["kubectl", "annotate", "--overwrite", f"kustomization/{name}",
-             "-n", "flux-system", f"reconcile.fluxcd.io/requestedAt={ts}"],
+            [
+                "kubectl",
+                "annotate",
+                "--overwrite",
+                f"kustomization/{name}",
+                "-n",
+                "flux-system",
+                f"reconcile.fluxcd.io/requestedAt={ts}",
+            ],
             description=f"Trigger Kustomization reconciliation ({name})",
             check=False,
         )

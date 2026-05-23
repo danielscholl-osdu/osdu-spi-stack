@@ -16,11 +16,13 @@ def test_resolve_image_selects_newest_immutable_sha(monkeypatch):
 
     def fake_gitlab_get(url: str):
         if "registry/repositories?" in url:
-            return [{
-                "id": 123,
-                "name": "partition-master",
-                "location": "community.opengroup.org:5555/osdu/partition-master",
-            }]
+            return [
+                {
+                    "id": 123,
+                    "name": "partition-master",
+                    "location": "community.opengroup.org:5555/osdu/partition-master",
+                }
+            ]
         if url.endswith("/tags?per_page=100&page=1"):
             return [{"name": old_sha}, {"name": "latest"}, {"name": new_sha}]
         if url.endswith(f"/tags/{old_sha}"):

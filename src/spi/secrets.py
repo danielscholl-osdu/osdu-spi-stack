@@ -53,9 +53,16 @@ def _generate_password(length: int = 24) -> str:
 
 def _kubectl_apply_secret(namespace: str, name: str, literals: dict):
     cmd = [
-        "kubectl", "create", "secret", "generic", name,
-        "-n", namespace,
-        "--dry-run=client", "-o", "yaml",
+        "kubectl",
+        "create",
+        "secret",
+        "generic",
+        name,
+        "-n",
+        namespace,
+        "--dry-run=client",
+        "-o",
+        "yaml",
     ]
     for k, v in literals.items():
         cmd.append(f"--from-literal={k}={v}")
@@ -70,9 +77,9 @@ def _kubectl_apply_secret(namespace: str, name: str, literals: dict):
 
 def _get_seed() -> dict | None:
     result = subprocess.run(
-        ["kubectl", "get", "secret", SEED_NAME, "-n", SEED_NAMESPACE,
-         "-o", "jsonpath={.data}"],
-        capture_output=True, text=True,
+        ["kubectl", "get", "secret", SEED_NAME, "-n", SEED_NAMESPACE, "-o", "jsonpath={.data}"],
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0 or not result.stdout.strip():
         return None
@@ -100,9 +107,9 @@ def get_or_create_seed() -> dict:
             seed[k] = _generate_password()
 
     if existing:
-        console.print(f"  [info]Seed secret updated with new keys[/info]")
+        console.print("  [info]Seed secret updated with new keys[/info]")
     else:
-        console.print(f"  [info]Generating new passwords...[/info]")
+        console.print("  [info]Generating new passwords...[/info]")
     _create_seed(seed)
     return seed
 
@@ -110,34 +117,58 @@ def get_or_create_seed() -> dict:
 def _create_platform_secrets(s: dict):
     """Create infrastructure secrets in the platform namespace."""
     # PostgreSQL (Airflow metadata)
-    _kubectl_apply_secret("platform", "postgresql-superuser-credentials", {
-        "username": "postgres",
-        "password": s["pg_admin_password"],
-    })
-    _kubectl_apply_secret("platform", "postgresql-airflow-credentials", {
-        "username": "airflow",
-        "password": s["pg_airflow_password"],
-    })
+    _kubectl_apply_secret(
+        "platform",
+        "postgresql-superuser-credentials",
+        {
+            "username": "postgres",
+            "password": s["pg_admin_password"],
+        },
+    )
+    _kubectl_apply_secret(
+        "platform",
+        "postgresql-airflow-credentials",
+        {
+            "username": "airflow",
+            "password": s["pg_airflow_password"],
+        },
+    )
 
     # Elasticsearch
-    _kubectl_apply_secret("platform", "elasticsearch-es-elastic-user", {
-        "elastic": s["elastic_password"],
-    })
+    _kubectl_apply_secret(
+        "platform",
+        "elasticsearch-es-elastic-user",
+        {
+            "elastic": s["elastic_password"],
+        },
+    )
 
     # Redis
-    _kubectl_apply_secret("platform", "redis-credentials", {
-        "password": s["redis_password"],
-    })
+    _kubectl_apply_secret(
+        "platform",
+        "redis-credentials",
+        {
+            "password": s["redis_password"],
+        },
+    )
 
     # Airflow metadata connection
     pg_host = "postgresql-rw.platform.svc.cluster.local"
-    _kubectl_apply_secret("platform", "airflow-metadata-secret", {
-        "connection": f"postgresql://airflow:{s['pg_airflow_password']}@{pg_host}:5432/airflow",
-    })
-    _kubectl_apply_secret("platform", "airflow-webserver-credentials", {
-        "password": s["airflow_admin_password"],
-        "webserver-secret-key": s["airflow_webserver_secret_key"],
-    })
+    _kubectl_apply_secret(
+        "platform",
+        "airflow-metadata-secret",
+        {
+            "connection": f"postgresql://airflow:{s['pg_airflow_password']}@{pg_host}:5432/airflow",
+        },
+    )
+    _kubectl_apply_secret(
+        "platform",
+        "airflow-webserver-credentials",
+        {
+            "password": s["airflow_admin_password"],
+            "webserver-secret-key": s["airflow_webserver_secret_key"],
+        },
+    )
 
 
 def _create_osdu_secrets(s: dict):
@@ -149,10 +180,14 @@ def _create_osdu_secrets(s: dict):
     # Elasticsearch CA cert will be copied cross-namespace by the
     # middleware manifests. Just ensure the credential secrets exist.
     for svc in ["indexer", "search"]:
-        _kubectl_apply_secret("osdu", f"{svc}-elastic-secret", {
-            "ELASTIC_USER_SYSTEM": "elastic",
-            "ELASTIC_PASS_SYSTEM": s["elastic_password"],
-        })
+        _kubectl_apply_secret(
+            "osdu",
+            f"{svc}-elastic-secret",
+            {
+                "ELASTIC_USER_SYSTEM": "elastic",
+                "ELASTIC_PASS_SYSTEM": s["elastic_password"],
+            },
+        )
 
 
 def ensure_secrets():

@@ -1,12 +1,25 @@
 [project]
 name = "spi"
-version = "0.1.0"
+# Source-tree version uses a PEP 440 local sentinel ("+source") so locally
+# built wheels and editable installs are clearly tagged as non-release builds.
+# Release CI overwrites this line before `uv build`, stamping the real
+# X.Y.Z computed from the release label. The PackageNotFoundError fallback
+# in src/spi/__init__.py also uses this sentinel.
+version = "0.0.0+source"
 description = "OSDU SPI Stack CLI (osdu-spi-stack) - Deploy OSDU on Azure with SPI services"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Daniel Scholl", email = "daniel.scholl@microsoft.com" },
+]
 requires-python = ">=3.10"
 dependencies = [
     "rich>=14.3.0",
     "typer>=0.24.0",
     "pydantic>=2.12.0",
+    "pyyaml>=6.0",
+    "packaging>=24.0",
 ]
 
 [project.scripts]
@@ -19,8 +32,38 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/spi"]
 
+# Belt-and-suspenders alongside .gitignore: hatchling's default sdist scan can
+# pull in transient build/cache directories that contain absolute symlinks to
+# the host Python interpreter. Force them out of the sdist regardless of which
+# excludes hatchling decides to honor.
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".uv-cache",
+    ".venv",
+    "workspace",
+    ".claude",
+    ".archon",
+    "logs",
+]
+
 [dependency-groups]
 dev = [
+    "pre-commit>=4.0",
     "pytest>=9.0.3",
+    "pytest-cov>=7.0.0",
     "pyyaml>=6.0.3",
+    "ruff>=0.14.0",
+    "ty>=0.0.32",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

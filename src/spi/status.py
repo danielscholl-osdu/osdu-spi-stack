@@ -303,10 +303,10 @@ def get_jobs_table(namespaces: List[str]) -> Optional[Table]:
     """
     jobs = _fetch_jobs(namespaces)
     generic = [
-        j for j in jobs
-        if (j.get("metadata", {}).get("labels") or {}).get(
-            "app.kubernetes.io/component"
-        ) not in _PARTITION_INIT_COMPONENTS
+        j
+        for j in jobs
+        if (j.get("metadata", {}).get("labels") or {}).get("app.kubernetes.io/component")
+        not in _PARTITION_INIT_COMPONENTS
     ]
     if not generic:
         return None

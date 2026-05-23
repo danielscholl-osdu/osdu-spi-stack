@@ -45,16 +45,19 @@ class TestValidPartitions:
 
 
 class TestInvalidPartitionNames:
-    @pytest.mark.parametrize("bad_name", [
-        "OPENDES",       # uppercase
-        "Opendes",       # mixed case
-        "my-tenant",     # hyphen
-        "p_1",           # underscore
-        "p1!",           # special char
-        "p 1",           # space
-        "tenant.1",      # period
-        "",              # empty string element
-    ])
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "OPENDES",  # uppercase
+            "Opendes",  # mixed case
+            "my-tenant",  # hyphen
+            "p_1",  # underscore
+            "p1!",  # special char
+            "p 1",  # space
+            "tenant.1",  # period
+            "",  # empty string element
+        ],
+    )
     def test_rejects_non_alphanumeric(self, bad_name):
         with pytest.raises(ValidationError) as exc_info:
             Config(env="dev1", data_partitions=[bad_name])

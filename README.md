@@ -24,40 +24,82 @@ This project is currently optimized for Azure dev/test environments and is still
 - **Workload Identity**: no stored credentials; all Azure access via federated identity
 
 
-## Quick Start
+## Install
 
-The only tool you need to get started is [`uv`](https://docs.astral.sh/uv/).
+The only tool you need is [`uv`](https://docs.astral.sh/uv/). Install the
+latest released `spi` binary directly from a GitHub Release:
 
 ```bash
-git clone https://github.com/danielscholl-osdu/osdu-spi-stack.git
-cd osdu-spi-stack
+uv tool install https://github.com/danielscholl-osdu/osdu-spi-stack/releases/latest/download/spi-latest-py3-none-any.whl
+spi --version
+```
 
+Pin to a specific version (recommended for reproducibility) by replacing
+`latest` with `vX.Y.Z` and the wheel name accordingly:
+
+```bash
+uv tool install https://github.com/danielscholl-osdu/osdu-spi-stack/releases/download/v0.1.1/spi-0.1.1-py3-none-any.whl
+```
+
+After install the `spi` binary is on PATH; no `uv run` prefix.
+
+To upgrade in place to the newest release:
+
+```bash
+spi update           # check for a newer version and install it
+spi update --check   # check only; do not install
+spi update --force   # reinstall even if already on the latest version
+```
+
+> **Note:** `uv tool install git+https://github.com/...@vX.Y.Z` also works,
+> but the wheel-URL form above is preferred because it preserves the
+> tag-derived version in `spi --version` reliably.
+
+## Quick Start
+
+Once installed:
+
+```bash
 # Check prerequisites
-uv run spi check
+spi check
 
 # Deploy (provisions Azure resources + activates GitOps)
-uv run spi up --env dev1
+spi up --env dev1
 
 # Multi-partition deploy (one CosmosDB + Service Bus + storage per partition)
-uv run spi up --env dev1 --partition opendes --partition tenant1
+spi up --env dev1 --partition opendes --partition tenant1
 
 # Pick an ingress mode (default: azure)
-uv run spi up --env dev1 --ingress-mode dns --dns-zone example.com
-uv run spi up --env dev1 --ingress-mode ip       # debug / smoke
+spi up --env dev1 --ingress-mode dns --dns-zone example.com
+spi up --env dev1 --ingress-mode ip       # debug / smoke
 ```
 
 ### After Deploy
 
 ```bash
-uv run spi status              # Deployment health dashboard
-uv run spi status --watch      # Continuous refresh
-uv run spi info                # Endpoints and credentials
+spi status              # Deployment health dashboard
+spi status --watch      # Continuous refresh
+spi info                # Endpoints and credentials
 
-uv run spi reconcile --suspend # Freeze: stop Flux auto-reconciliation
-uv run spi reconcile --resume  # Unfreeze: resume Flux auto-reconciliation
+spi reconcile --suspend # Freeze: stop Flux auto-reconciliation
+spi reconcile --resume  # Unfreeze: resume Flux auto-reconciliation
 
-uv run spi down --env dev1     # Tear down when done
+spi down --env dev1     # Tear down when done
 ```
+
+## Development Setup
+
+To work on `spi` itself rather than install it:
+
+```bash
+git clone https://github.com/danielscholl-osdu/osdu-spi-stack.git
+cd osdu-spi-stack
+uv sync
+uv run spi --help
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full developer workflow,
+including pre-commit setup, conventional commits, and the release process.
 
 
 ## Operating Model

@@ -20,7 +20,6 @@ from .console import console, display_result, display_yaml
 from .shell import kubectl_apply_yaml, kubectl_json, run_command
 from .templates import storage_class
 
-
 STORAGE_CLASSES = ["pg-storageclass", "redis-storageclass", "es-storageclass"]
 
 
@@ -34,12 +33,7 @@ def _detect_istio_revision() -> str:
 
     data = kubectl_json(["get", "pods", "-n", "aks-istio-system"])
     if data and data.get("items"):
-        rev = (
-            data["items"][0]
-            .get("metadata", {})
-            .get("labels", {})
-            .get("istio.io/rev", "")
-        )
+        rev = data["items"][0].get("metadata", {}).get("labels", {}).get("istio.io/rev", "")
         if rev:
             return rev
     return "asm-1-28"
@@ -56,7 +50,8 @@ def ensure_namespaces(istio_revision: str = "") -> None:
     for ns in ["flux-system", "foundation", "platform"]:
         subprocess.run(
             ["kubectl", "create", "namespace", ns],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     # Only osdu namespace gets Istio injection (platform middleware
@@ -79,11 +74,7 @@ def create_storage_classes() -> None:
     """Create Premium StorageClasses for stateful middleware."""
     console.print("\n[bold]Creating StorageClasses...[/bold]")
     provisioner = "disk.csi.azure.com"
-    extra_params = (
-        "  skuName: Premium_LRS\n"
-        "  kind: Managed\n"
-        "  cachingMode: ReadOnly"
-    )
+    extra_params = "  skuName: Premium_LRS\n  kind: Managed\n  cachingMode: ReadOnly"
     console.print(f"  [info]Using provisioner: {provisioner}[/info]")
 
     for sc_name in STORAGE_CLASSES:
@@ -96,8 +87,12 @@ def create_storage_classes() -> None:
 def install_gateway_api_crds() -> None:
     console.print("\n[bold]Installing Gateway API CRDs...[/bold]")
     run_command(
-        ["kubectl", "apply", "-f",
-         "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml"],
+        [
+            "kubectl",
+            "apply",
+            "-f",
+            "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml",
+        ],
         description="Install Gateway API CRDs",
     )
     display_result("Gateway API CRDs installed")
