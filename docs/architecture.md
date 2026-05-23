@@ -1,5 +1,10 @@
 # Architecture
 
+> This document is the 30,000-ft overview of SPI Stack. For deeper explainers of
+> specific subsystems (deployment lifecycle, Bicep, Flux reconciliation, Workload
+> Identity, ingress, secret lifecycle), see [`docs/design/`](design/). Each design
+> doc links back to the relevant ADRs.
+
 ## Overview
 
 SPI Stack deploys the OSDU platform on Azure with a hybrid provisioning model: Bicep declares every Azure resource, the `spi` CLI orchestrates the seams Bicep cannot cover (resource group creation, soft-delete Key Vault recovery, K8s bootstrap, Istio CNI chaining), and Flux CD continuously reconciles everything inside the cluster. Unlike a cloud-agnostic stack where all middleware runs in-cluster, SPI Stack offloads data services to Azure PaaS (Cosmos DB, Service Bus, Storage, Key Vault, Entra ID) and keeps in-cluster workloads only where no managed equivalent exists.

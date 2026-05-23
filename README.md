@@ -40,6 +40,10 @@ uv run spi up --env dev1
 
 # Multi-partition deploy (one CosmosDB + Service Bus + storage per partition)
 uv run spi up --env dev1 --partition opendes --partition tenant1
+
+# Pick an ingress mode (default: azure)
+uv run spi up --env dev1 --ingress-mode dns --dns-zone example.com
+uv run spi up --env dev1 --ingress-mode ip       # debug / smoke
 ```
 
 ### After Deploy
@@ -145,22 +149,23 @@ If you use an AI coding assistant (Claude Code, GitHub Copilot, Cursor), this pr
 uv run spi <command> [OPTIONS]
 
 Commands:
-  check      Validate required tools are installed       
-  up         Provision Azure infra and deploy the stack   --env NAME [--profile] [--partition] [--dry-run]
+  check      Validate required tools are installed
+  up         Provision Azure infra and deploy the stack   --env NAME [--profile] [--partition] [--ingress-mode] [--dns-zone] [--dry-run]
   status     Deployment health dashboard                  [--watch]
   down       Delete all Azure resources                   --env NAME
   info       Show endpoints and optional credentials      [--show-secrets]
-  reconcile  Force Flux to re-sync from Git               [--suspend] [--resume]
+  reconcile  Force Flux to re-sync from Git               [--suspend] [--resume] [--refresh-images]
 ```
 
-Use `--dry-run` on `spi up` to preview the Bicep changes (`az deployment group what-if`) before any Azure resources are created beyond the resource group.
+Use `--dry-run` on `spi up` to preview the Bicep changes (`az deployment group what-if`) before any Azure resources are created beyond the resource group. `--ingress-mode` defaults to `azure`; the other supported modes are `dns` (per-service hostnames on an owned Azure DNS zone) and `ip` (bare IP, debug only). `--refresh-images` re-resolves the OSDU community image tags and reconciles the service Kustomizations.
 
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [AI Skills](docs/ai-skills.md)
-- [ADRs](docs/decisions/)
+- [Architecture](docs/architecture.md)  -- 30,000-ft overview of the system
+- [Design docs](docs/design/)  -- how subsystems actually work (deployment lifecycle, Bicep, Flux, Workload Identity, ingress, secrets)
+- [ADRs](docs/decisions/)  -- decision records with alternatives considered
+- [AI Skills](docs/ai-skills.md)  -- portable agent skills bundled with the repo
 
 ## License
 
