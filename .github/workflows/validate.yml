@@ -1,0 +1,116 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref so PRs do not stack up CI work.
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - name: Install dev deps
+        run: uv sync --frozen
+      - name: ruff check
+        run: uv run ruff check src tests scripts
+      - name: ruff format --check
+        run: uv run ruff format --check src tests
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: ty check
+        run: uv run ty check src tests
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: pytest with coverage
+        run: |
+          uv run pytest \
+            --cov=src/spi \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  manifests:
+    name: manifests
+    runs-on: ubuntu-latest
+    env:
+      KUSTOMIZE_VERSION: "5.4.3"
+      KUBECONFORM_VERSION: "0.6.7"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kustomize
+        run: |
+          curl -fsSL -o /tmp/kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp kustomize
+          sudo install /tmp/kustomize /usr/local/bin/kustomize
+          kustomize version
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo install /tmp/kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+      - name: Validate all kustomizations
+        run: bash scripts/validate_manifests.sh
+
+  bicep-whatif:
+    name: bicep-whatif
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Install Bicep CLI
+        run: az bicep install
+      - name: Bicep build (syntax check)
+        run: az bicep build --file infra/main.bicep
+      - name: What-if deployment
+        run: |
+          az deployment group what-if \
+            --resource-group spi-ci-whatif \
+            --template-file infra/main.bicep \
+            --parameters infra/params/dev1.bicepparam \
+            --no-pretty-print
