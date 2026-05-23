@@ -21,6 +21,7 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
+from . import __version__
 from .checks import PREREQ_TOOLS, check_prerequisites
 from .config import Config, IngressMode, Profile
 from .console import console, display_result, display_yaml
@@ -39,6 +40,26 @@ app = typer.Typer(
     help="SPI Stack - deploy, monitor, and manage OSDU on Azure AKS Automatic.",
     add_completion=False,
 )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"spi {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the spi version and exit.",
+    ),
+) -> None:
+    """SPI Stack - deploy, monitor, and manage OSDU on Azure AKS Automatic."""
 
 
 def _show_config(config: Config):
@@ -463,3 +484,116 @@ def reconcile(
         )
 
     console.print("[success]Reconciliation triggered.[/success]")
+
+
+@app.command()
+def update(
+    check: bool = typer.Option(False, "--check", help="Check for an update; do not install."),
+    force: bool = typer.Option(
+        False, "--force", help="Reinstall even if already on the latest version."
+    ),
+    silent: bool = typer.Option(
+        False, "--silent", help="Suppress changelog and command panels; print only the outcome."
+    ),
+    token: Optional[str] = typer.Option(
+        None, "--token", help="GitHub token for release-notes fetch (overrides env / gh auth)."
+    ),
+):
+    """Check for and install the latest spi release from GitHub Releases."""
+    from packaging.version import InvalidVersion
+    from packaging.version import Version as _Version
+    from rich.markdown import Markdown
+
+    from . import update as _update
+
+    if __version__ == "0.0.0+source":
+        console.print("[info]you are running from a source checkout; pull with git instead.[/info]")
+        raise typer.Exit(code=0)
+
+    try:
+        current = _Version(__version__)
+    except InvalidVersion:
+        console.print(f"[error]cannot parse current spi version '{__version__}'.[/error]")
+        raise typer.Exit(code=1)
+
+    installer = _update.detect_installer()
+    if installer is None:
+        console.print(
+            "[error]spi was not installed by uv tool or pipx; manual upgrade required.[/error]"
+        )
+        console.print("[dim]If you cloned the repo, use `git pull` instead.[/dim]")
+        raise typer.Exit(code=1)
+
+    tok = _update.resolve_github_token(token)
+
+    try:
+        release = _update.fetch_latest_release(token=tok)
+        latest = _update.parse_version_from_release(release)
+    except _update.UpdateError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(code=1)
+
+    up_to_date = current >= latest
+
+    if check:
+        if up_to_date:
+            console.print(f"spi {current} (already on latest)")
+        else:
+            console.print(f"spi {current} -> {latest} (update available)")
+        raise typer.Exit(code=0)
+
+    if up_to_date and not force:
+        if silent:
+            typer.echo(f"spi {current}")
+        else:
+            console.print(f"[success]spi {current} (already on latest)[/success]")
+        raise typer.Exit(code=0)
+
+    try:
+        wheel_url = _update.find_wheel_asset_url(release)
+    except _update.UpdateError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(code=1)
+
+    if not silent:
+        notes = _update.fetch_release_notes(current, latest, token=tok)
+        if notes:
+            console.print(
+                Panel(
+                    Markdown(notes),
+                    title=f"Changelog {current} -> {latest}",
+                    border_style="cyan",
+                )
+            )
+        else:
+            console.print(
+                "[info](unable to fetch release notes; "
+                "set GITHUB_TOKEN or `gh auth login` to raise rate limits)[/info]"
+            )
+
+    rc = _update.run_upgrade(installer, wheel_url, display=not silent)
+    if rc != 0:
+        if silent:
+            typer.echo(f"spi upgrade failed (exit {rc})", err=True)
+        raise typer.Exit(code=1)
+
+    on_disk = _update.installed_version()
+    if on_disk is None or on_disk < latest:
+        actual = on_disk if on_disk is not None else current
+        if silent:
+            typer.echo(f"spi upgrade no-op: still on {actual}", err=True)
+        else:
+            console.print(
+                f"[error]upgrade reported success but installed version is still {actual}.[/error]"
+            )
+        raise typer.Exit(code=1)
+
+    if silent:
+        typer.echo(f"spi {on_disk}")
+    else:
+        console.print(
+            Panel(
+                f"[success]Updated spi {current} -> {on_disk}[/success]",
+                border_style="green",
+            )
+        )
