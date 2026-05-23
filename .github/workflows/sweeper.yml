@@ -1,0 +1,51 @@
+name: Orphan RG Sweeper
+
+# Reap Azure resource groups left behind by canceled smoke pipelines.
+# A canceled smoke run kills the teardown job along with every other job
+# (so `if: always()` does not save us); this sweeper is the backstop.
+#
+# Selection rules in scripts/sweep_orphan_rgs.sh: RG name starts with
+# `spi-stack-ci-` AND has tag `spi-ci-sweep-eligible=true` AND has tag
+# `spi-created-utc` older than 3 hours.
+
+on:
+  schedule:
+    # 4 AM UTC daily, 4 hours before the nightly smoke run (8 AM UTC).
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List candidates only; do not delete"
+        type: boolean
+        default: false
+      age_hours:
+        description: "Minimum RG age (hours) before eligible for sweeping"
+        type: string
+        default: "3"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sweeper
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run sweeper
+        env:
+          SWEEPER_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          SWEEP_AGE_HOURS: ${{ inputs.age_hours || '3' }}
+        run: bash scripts/sweep_orphan_rgs.sh
