@@ -52,7 +52,8 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # --match 'v*' filters out non-semver tags (e.g., snapshot/overnight tags).
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
           if [[ -z "$PREV_TAG" ]]; then
             CURRENT="0.0.0"
             PREV_REF=$(git rev-list --max-parents=0 HEAD | head -1)
