@@ -1,0 +1,140 @@
+name: Smoke
+
+# Real `spi up` against the Azure subscription. Provisioning takes ~15 minutes,
+# Flux reconciliation another 10-30 minutes, plus teardown. Schedule + manual
+# only -- never on PR. The orphan-RG sweeper is the safety net if this job's
+# teardown is killed before it runs.
+
+on:
+  schedule:
+    # 8 AM UTC daily, 4 hours after the sweeper sweep (4 AM UTC).
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      env_suffix:
+        description: "RG/cluster env suffix (default: run-<id>)"
+        type: string
+        default: ""
+      profile:
+        description: "Deployment profile"
+        type: choice
+        options:
+          - core
+          - full
+        default: core
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    environment: azure-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ENV_SUFFIX: ${{ inputs.env_suffix || format('run{0}', github.run_id) }}
+      PROFILE: ${{ inputs.profile || 'core' }}
+      AZURE_LOCATION: eastus2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Install Flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve env name
+        id: env
+        run: |
+          set -euo pipefail
+          # Strip non-alphanumerics from ENV_SUFFIX (Azure RG/cluster name constraints).
+          SUFFIX=$(echo "$ENV_SUFFIX" | tr -cd '[:alnum:]')
+          RG="spi-stack-ci-${SUFFIX}"
+          CREATED_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "rg=$RG" >> "$GITHUB_OUTPUT"
+          echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "created=$CREATED_UTC" >> "$GITHUB_OUTPUT"
+          echo "Resource group: $RG"
+
+      - name: Quota guard (max 2 in-flight CI smoke RGs)
+        run: |
+          set -euo pipefail
+          count=$(az group list --tag spi-ci-sweep-eligible=true --query 'length(@)' -o tsv)
+          echo "In-flight smoke RGs: $count"
+          if [ "$count" -gt 2 ]; then
+            echo "::error::Too many in-flight smoke RGs ($count). Investigate before scheduling more."
+            exit 1
+          fi
+
+      - name: Pre-create RG with sweeper tags
+        run: |
+          set -euo pipefail
+          az group create \
+            --name "${{ steps.env.outputs.rg }}" \
+            --location "$AZURE_LOCATION" \
+            --tags \
+              spi-ci-sweep-eligible=true \
+              "spi-created-utc=${{ steps.env.outputs.created }}" \
+              github-run-id=${{ github.run_id }}
+
+      - name: spi up
+        run: |
+          uv sync --frozen
+          uv run spi up \
+            --env "ci-${{ steps.env.outputs.suffix }}" \
+            --profile "$PROFILE" \
+            --location "$AZURE_LOCATION"
+
+      - name: Wait for Flux Kustomizations to be Ready
+        run: bash scripts/wait_for_flux_ready.sh --timeout 1800
+
+      - name: Acceptance probe (gateway reachable)
+        run: |
+          set -euo pipefail
+          # Smoke-level probe: gateway service exists and the Istio gateway
+          # has at least one Ready pod. Service-level checks are out of scope
+          # for the smoke; deeper acceptance lives in osdu-test skill.
+          kubectl get svc -n aks-istio-ingress
+          kubectl get pods -n aks-istio-ingress --field-selector=status.phase=Running
+
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: bash scripts/capture_diagnostics.sh "smoke-${{ github.run_id }}"
+
+      - name: Upload diagnostics artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-diagnostics-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: ignore
+
+      - name: spi down (teardown)
+        if: always()
+        run: |
+          uv run spi down --env "ci-${{ steps.env.outputs.suffix }}" || true
+
+      - name: Force RG delete (backup teardown)
+        if: always()
+        run: |
+          az group delete --name "${{ steps.env.outputs.rg }}" --yes --no-wait || true
