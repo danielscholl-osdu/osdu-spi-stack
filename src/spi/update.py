@@ -98,9 +98,7 @@ def find_wheel_asset_url(release: dict) -> str:
             url = asset.get("browser_download_url")
             if isinstance(url, str) and url:
                 return url
-    raise UpdateError(
-        f"release {release.get('tag_name')!r} has no spi-*-py3-none-any.whl asset"
-    )
+    raise UpdateError(f"release {release.get('tag_name')!r} has no spi-*-py3-none-any.whl asset")
 
 
 def _running_spi_dir() -> Optional[Path]:
