@@ -63,15 +63,19 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Pre-cache Azure tokens
-        # GitHub OIDC JWTs live 5 min; az CLI only acquires the ARM-audience
-        # token at login. The first Graph call (az ad signed-in-user show in
-        # _grant_deployer_cluster_admin) happens ~20 min into spi up and tries
-        # to re-present the dead JWT for a Graph token, yielding AADSTS700024.
-        # Pre-fetch both audiences now so az caches ~1h tokens for the run.
+      - name: Pre-cache Azure tokens and resolve deployer OID
+        id: prelogin
+        # GitHub OIDC JWTs live 5 min. Pre-fetch both ARM- and Graph-audience
+        # access tokens while the JWT is fresh; az CLI caches them ~1h. Also
+        # resolve the deployer service-principal OID here -- `az ad` commands
+        # bypass the MSAL cache and would otherwise re-do the federated
+        # exchange ~20 min into spi up, yielding AADSTS700024. The OID is
+        # injected into spi up via SPI_DEPLOYER_OID, skipping the mid-job
+        # Graph call entirely.
         run: |
           az account get-access-token --resource https://management.azure.com -o none
           az account get-access-token --resource https://graph.microsoft.com -o none
+          echo "oid=$(az ad signed-in-user show --query id -o tsv)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve env name
         id: env
@@ -113,6 +117,8 @@ jobs:
               github-run-id=${{ github.run_id }}
 
       - name: spi up
+        env:
+          SPI_DEPLOYER_OID: ${{ steps.prelogin.outputs.oid }}
         run: |
           uv sync --frozen
           uv run spi up \

@@ -44,6 +44,7 @@ are skipped and an empty outputs dict is returned.
 """
 
 import json
+import os
 import time
 from typing import Any, Dict
 
@@ -200,11 +201,17 @@ def _grant_deployer_cluster_admin(config: Config, cluster_resource_id: str):
         display=False,
     )
     account = json.loads(account_result.stdout)
-    user_oid = run_command(
-        ["az", "ad", "signed-in-user", "show", "--query", "id", "--output", "tsv"],
-        description="Get deployer object ID",
-        display=False,
-    ).stdout.strip()
+    # Honor SPI_DEPLOYER_OID when set (CI passes it from a step that runs
+    # while the GitHub OIDC JWT is still within its 5-minute lifetime).
+    # `az ad` commands bypass the MSAL access-token cache and re-do the
+    # federated exchange, which fails ~20 min into spi up with AADSTS700024.
+    user_oid = os.environ.get("SPI_DEPLOYER_OID", "").strip()
+    if not user_oid:
+        user_oid = run_command(
+            ["az", "ad", "signed-in-user", "show", "--query", "id", "--output", "tsv"],
+            description="Get deployer object ID",
+            display=False,
+        ).stdout.strip()
     principal_type = "User" if account.get("user", {}).get("type") == "user" else "ServicePrincipal"
 
     console.print("\n[bold]Granting deployer cluster-admin...[/bold]")
