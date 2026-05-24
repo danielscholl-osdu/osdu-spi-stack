@@ -67,15 +67,21 @@ jobs:
         id: prelogin
         # GitHub OIDC JWTs live 5 min. Pre-fetch both ARM- and Graph-audience
         # access tokens while the JWT is fresh; az CLI caches them ~1h. Also
-        # resolve the deployer service-principal OID here -- `az ad` commands
-        # bypass the MSAL cache and would otherwise re-do the federated
-        # exchange ~20 min into spi up, yielding AADSTS700024. The OID is
-        # injected into spi up via SPI_DEPLOYER_OID, skipping the mid-job
-        # Graph call entirely.
+        # resolve the deployer SP's objectId here so spi up can skip the
+        # mid-job Graph call that would otherwise hit AADSTS700024 (token
+        # refresh against a dead JWT). `az ad sp show --id <appId>` is the
+        # application-flow lookup; `az ad signed-in-user show` (the /me
+        # endpoint) is delegated-only and fails for service principals.
         run: |
+          set -euo pipefail
           az account get-access-token --resource https://management.azure.com -o none
           az account get-access-token --resource https://graph.microsoft.com -o none
-          echo "oid=$(az ad signed-in-user show --query id -o tsv)" >> "$GITHUB_OUTPUT"
+          OID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
+          if [ -z "$OID" ]; then
+            echo "::error::Failed to resolve deployer service principal OID"
+            exit 1
+          fi
+          echo "oid=$OID" >> "$GITHUB_OUTPUT"
 
       - name: Resolve env name
         id: env
