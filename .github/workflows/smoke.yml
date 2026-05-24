@@ -39,7 +39,7 @@ jobs:
     env:
       ENV_SUFFIX: ${{ inputs.env_suffix || format('run{0}', github.run_id) }}
       PROFILE: ${{ inputs.profile || 'core' }}
-      AZURE_LOCATION: eastus2
+      AZURE_LOCATION: centralus
     steps:
       - uses: actions/checkout@v6
 
