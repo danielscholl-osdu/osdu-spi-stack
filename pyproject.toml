@@ -15,7 +15,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "rich>=14.3.0",
+    "rich>=15.0.0",
     "typer>=0.25.1",
     "pydantic>=2.13.4",
     "pyyaml>=6.0",
