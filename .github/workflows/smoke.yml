@@ -56,12 +56,18 @@ jobs:
       - name: Install kubelogin
         # AKS Automatic kubeconfigs reference kubelogin as their AAD exec
         # plugin; without it every kubectl call fails to authenticate.
-        # spi up converts the kubeconfig to azurecli auth (so kubelogin is
-        # not invoked per-call), but the convert command itself needs the
-        # binary on PATH.
-        uses: azure/use-kubelogin@v1
-        with:
-          kubelogin-version: 'latest'
+        # Inlined rather than using azure/use-kubelogin@v1 because that
+        # action requires GITHUB_TOKEN to resolve "latest" and we keep the
+        # job permissions minimal.
+        env:
+          KUBELOGIN_VERSION: v0.1.4
+        run: |
+          set -euo pipefail
+          curl -sSLo /tmp/kubelogin.zip \
+            "https://github.com/Azure/kubelogin/releases/download/${KUBELOGIN_VERSION}/kubelogin-linux-amd64.zip"
+          unzip -q /tmp/kubelogin.zip -d /tmp/kubelogin
+          sudo install /tmp/kubelogin/bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
+          kubelogin --version
 
       - name: Install Flux CLI
         uses: fluxcd/flux2/action@main
