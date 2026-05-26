@@ -161,6 +161,16 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
         description="Merge kubeconfig",
     )
 
+    # AKS Automatic kubeconfigs default to the `azurecli` exec plugin
+    # (kubelogin binary). Rewrite to use the `az` CLI's token cache directly
+    # so every kubectl call reuses already-acquired tokens instead of
+    # spawning kubelogin and re-running the OIDC exchange (which can fail
+    # with AADSTS700024 once the GitHub OIDC JWT has expired mid-job).
+    run_command(
+        ["kubelogin", "convert-kubeconfig", "-l", "azurecli"],
+        description="Convert kubeconfig to azurecli auth",
+    )
+
     # AVM v0.13.0 types proxyRedirectionMechanism out of IstioComponents;
     # enable CNI chaining imperatively. Idempotent. CNI chaining avoids
     # the NET_ADMIN capability requirement that the default Istio sidecar
