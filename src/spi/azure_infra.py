@@ -161,6 +161,16 @@ def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any
         description="Merge kubeconfig",
     )
 
+    # AKS Automatic kubeconfigs default to the `azurecli` exec plugin
+    # (kubelogin binary). Rewrite to use the `az` CLI's token cache directly
+    # so every kubectl call reuses already-acquired tokens instead of
+    # spawning kubelogin and re-running the OIDC exchange (which can fail
+    # with AADSTS700024 once the GitHub OIDC JWT has expired mid-job).
+    run_command(
+        ["kubelogin", "convert-kubeconfig", "-l", "azurecli"],
+        description="Convert kubeconfig to azurecli auth",
+    )
+
     # AVM v0.13.0 types proxyRedirectionMechanism out of IstioComponents;
     # enable CNI chaining imperatively. Idempotent. CNI chaining avoids
     # the NET_ADMIN capability requirement that the default Istio sidecar
@@ -246,20 +256,63 @@ def _grant_deployer_cluster_admin(config: Config, cluster_resource_id: str):
         description=f"Assign cluster-admin to {user_oid[:8]}...",
         # Idempotent: on re-deploys the assignment already exists and the
         # CLI returns non-zero. We tolerate that and fall through to the
-        # propagation wait, which no-ops when the token already has the role.
+        # ARM-side verification below, which distinguishes a real failure
+        # from a benign "already exists".
         check=False,
     )
+    _verify_role_assignment_recorded(user_oid, cluster_resource_id)
     _wait_for_cluster_rbac()
 
 
-def _wait_for_cluster_rbac(timeout_seconds: int = 300):
+def _verify_role_assignment_recorded(user_oid: str, cluster_resource_id: str):
+    """Confirm the cluster-admin assignment is visible in ARM before polling propagation.
+
+    The preceding ``az role assignment create`` runs with ``check=False`` so a
+    silent failure would otherwise be indistinguishable from slow AKS
+    authorization-plane propagation. ARM listings respond within seconds and
+    are independent of AKS-plane caching.
+    """
+    result = run_command(
+        [
+            "az",
+            "role",
+            "assignment",
+            "list",
+            "--assignee",
+            user_oid,
+            "--scope",
+            cluster_resource_id,
+            "--role",
+            "Azure Kubernetes Service RBAC Cluster Admin",
+            "--query",
+            "length(@)",
+            "--output",
+            "tsv",
+        ],
+        description="Verify cluster-admin assignment exists",
+        check=False,
+        display=False,
+    )
+    count_str = (result.stdout or "").strip()
+    if result.returncode != 0 or not count_str.isdigit() or int(count_str) < 1:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(
+            f"Cluster-admin role assignment for {user_oid[:8]}... is not recorded on "
+            f"{cluster_resource_id}. The preceding `az role assignment create` likely "
+            f"failed silently. az stderr: {stderr!r}"
+        )
+
+
+def _wait_for_cluster_rbac(timeout_seconds: int = 600):
     """Poll ``kubectl auth can-i`` until AKS Azure RBAC recognizes the grant.
 
-    New role assignments take 2-3 minutes (occasionally up to 5) to
-    propagate to the AKS authorization layer. Namespace creation is a
-    representative cluster-scoped check.
+    Role assignment propagation to the AKS authorization layer typically
+    takes 2-3 minutes for users and 5-8 minutes for service principals.
+    Namespace creation is a representative cluster-scoped check.
     """
-    with console.status("[bold]Waiting for AKS RBAC propagation (~2-3 min)...[/bold]"):
+    last_response = ""
+    last_returncode = -1
+    with console.status("[bold]Waiting for AKS RBAC propagation (~2-8 min)...[/bold]"):
         deadline = time.time() + timeout_seconds
         while time.time() < deadline:
             result = run_command(
@@ -268,12 +321,15 @@ def _wait_for_cluster_rbac(timeout_seconds: int = 300):
                 display=False,
                 check=False,
             )
+            last_returncode = result.returncode
+            last_response = ((result.stdout or "") + (result.stderr or "")).strip()
             if result.returncode == 0 and "yes" in (result.stdout or "").lower():
                 display_result("AKS Azure RBAC propagated")
                 return
             time.sleep(10)
     raise RuntimeError(
-        f"AKS Azure RBAC did not propagate within {timeout_seconds}s. "
+        f"AKS Azure RBAC did not propagate within {timeout_seconds}s "
+        f"(last kubectl returncode={last_returncode}, response={last_response!r}). "
         "Verify the deployer has 'Azure Kubernetes Service RBAC Cluster Admin' on the cluster."
     )
 
