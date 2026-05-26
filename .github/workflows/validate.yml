@@ -126,6 +126,11 @@ jobs:
       - name: Bicep build (syntax check)
         if: steps.gate.outputs.skip != 'true'
         run: az bicep build --file infra/main.bicep
+      - name: Ensure what-if RG exists
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          az group create --name spi-ci-whatif --location centralus --only-show-errors -o none
       - name: What-if deployment
         if: steps.gate.outputs.skip != 'true'
         run: |
