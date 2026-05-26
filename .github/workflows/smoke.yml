@@ -69,6 +69,14 @@ jobs:
           sudo install /tmp/kubelogin/bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
           kubelogin --version
 
+      - name: Install Helm
+        # GitHub's ubuntu-latest runner sometimes preinstalls helm and
+        # sometimes doesn't; install explicitly so the prereq check is
+        # deterministic.
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.16.2'
+
       - name: Install Flux CLI
         uses: fluxcd/flux2/action@main
 
