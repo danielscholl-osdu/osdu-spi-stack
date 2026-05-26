@@ -451,6 +451,10 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
         # conditional modules in main.bicep no-op when dnsZoneName is empty.
         "dnsZoneName": config.dns_zone,
         "dnsZoneResourceGroup": config.dns_zone_rg,
+        # Deployer SP OID -- used by rbac.bicep to grant KV Secrets Officer
+        # so Phase 6 (`az keyvault secret set`) succeeds. Empty string is
+        # fine for local users with RG Owner.
+        "deployerPrincipalId": os.environ.get("SPI_DEPLOYER_OID", "").strip(),
     }
 
 
