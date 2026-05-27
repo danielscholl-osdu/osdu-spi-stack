@@ -13,7 +13,7 @@ development cycle.
 Ask a question  →  AI matches a skill  →  Skill injects domain context  →  Informed response
 ```
 
-Skills are markdown files with structured metadata in `.agents/skills/`. The AI reads the
+Skills are markdown files with structured metadata in `.github/skills/`. The AI reads the
 `description` field to decide which skill is relevant to your question. No slash commands
 or manual activation required.
 
@@ -66,23 +66,15 @@ Validate code and manage dependencies.
 
 ## Supported Platforms
 
-Skills follow the [Agent Skills Standard](https://agentskills.io). Most AI coding assistants
-discover skills directly from `.agents/skills/`, including GitHub Copilot, Codex, Cursor,
-Gemini CLI, Goose, Junie, and others. Claude Code does not read `.agents/skills/` natively,
-so skills are symlinked into `.claude/skills/` for discovery.
-
-### Claude Code Setup
-
-```bash
-ln -sf ../.agents/skills .claude/skills
-```
+Skills follow the [Agent Skills Standard](https://agentskills.io). GitHub Copilot CLI
+discovers repo skills directly from `.github/skills/`.
 
 ## Skill Anatomy
 
 Each skill lives in its own directory:
 
 ```
-.agents/skills/
+.github/skills/
   my-skill/
     SKILL.md              # Skill definition (frontmatter + instructions)
     scripts/              # Optional: Python scripts for data gathering
@@ -116,8 +108,7 @@ The `description` field is the discovery mechanism. State purpose first, add tri
 
 ## Creating a New Skill
 
-1. Create `.agents/skills/my-skill/SKILL.md` with frontmatter and content
+1. Create `.github/skills/my-skill/SKILL.md` with frontmatter and content
 2. Add `scripts/` or `references/` subdirectories if needed
-3. The `.claude/skills` symlink auto-discovers new skills
-4. Add the skill to the table in `AGENTS.md`
-5. Test in a fresh AI session. Verify it activates on expected queries
+3. Add the skill to the table in `AGENTS.md`
+4. Test in a fresh AI session. Verify it activates on expected queries

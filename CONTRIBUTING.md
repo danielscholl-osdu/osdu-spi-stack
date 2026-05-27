@@ -65,7 +65,7 @@ re-stage. Skip hooks (rare, last resort) with `git commit --no-verify`.
 | `software/stacks/osdu/` | OSDU service deployments and profiles |
 | `docs/decisions/` | Architecture Decision Records (ADRs) |
 | `docs/design/` | Subsystem design documents |
-| `.agents/skills/` | Portable AI agent skills |
+| `.github/skills/` | Portable AI agent skills |
 
 ## Making Changes
 
