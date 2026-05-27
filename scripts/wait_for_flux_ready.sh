@@ -75,29 +75,34 @@ SEEN_KUSTOMIZATIONS=0
 declare -A LAYER_DONE
 
 # When run inside a GitHub Actions job with id-token:write permission, the
-# OIDC JWT minted by azure/login@v3 lives only 5 minutes. az caches AAD
-# access tokens for 1h, but if kubelogin/az ever needs a refresh past the
-# 5-min JWT window, AADSTS700024 kills kubectl mid-wait. Refresh the
-# assertion file every 60s so the next az exchange (whenever it lands)
-# has a valid JWT to swap in.
-refresh_federated_assertion() {
+# OIDC JWT minted by azure/login@v3 lives only 5 minutes; the cached AAD
+# access token lives ~1h. Either way, beyond those windows kubelogin/az
+# trigger AADSTS700024 ("Client assertion is not within its valid time
+# range") and kubectl auth dies silently. Re-run `az login` periodically
+# with a fresh JWT so the AAD token cache is replaced before it can
+# expire. Requires SPI_AZURE_CLIENT_ID + SPI_AZURE_TENANT_ID env (forwarded
+# from the workflow secrets) plus the GitHub OIDC request env vars.
+refresh_azure_login() {
     if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] \
        || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] \
-       || [ -z "${AZURE_FEDERATED_TOKEN_FILE:-}" ]; then
+       || [ -z "${SPI_AZURE_CLIENT_ID:-}" ] \
+       || [ -z "${SPI_AZURE_TENANT_ID:-}" ]; then
         return 0
     fi
     local url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange"
-    local tmp="${AZURE_FEDERATED_TOKEN_FILE}.new"
-    if curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$url" 2>/dev/null \
-        | jq -r '.value // empty' > "$tmp" 2>/dev/null; then
-        if [ -s "$tmp" ]; then
-            mv -f "$tmp" "$AZURE_FEDERATED_TOKEN_FILE"
-        else
-            rm -f "$tmp"
-        fi
-    else
-        rm -f "$tmp" 2>/dev/null || true
+    local jwt
+    if ! jwt=$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$url" 2>/dev/null \
+            | jq -r '.value // empty'); then
+        return 0
     fi
+    if [ -z "$jwt" ]; then
+        return 0
+    fi
+    az login --service-principal \
+        --username "$SPI_AZURE_CLIENT_ID" \
+        --tenant "$SPI_AZURE_TENANT_ID" \
+        --federated-token "$jwt" \
+        --only-show-errors --output none 2>/dev/null || true
 }
 
 print_banner "wait_for_flux_ready · timeout $(fmt_mmss "$TIMEOUT") · heartbeat ${HEARTBEAT}s · spi status every ${STATUS_INTERVAL}s"
@@ -105,8 +110,10 @@ print_banner "wait_for_flux_ready · timeout $(fmt_mmss "$TIMEOUT") · heartbeat
 while :; do
     elapsed=$(( SECONDS - START ))
 
-    if [ $(( elapsed - LAST_FED_REFRESH )) -ge 60 ]; then
-        refresh_federated_assertion
+    # Re-login every 3 minutes so the AAD access token cache is rotated
+    # well before its lifetime ends; cheap (~1s) and idempotent.
+    if [ $(( elapsed - LAST_FED_REFRESH )) -ge 180 ]; then
+        refresh_azure_login
         LAST_FED_REFRESH=$elapsed
     fi
 

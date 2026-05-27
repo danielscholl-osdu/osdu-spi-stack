@@ -200,6 +200,13 @@ jobs:
           kubelogin convert-kubeconfig -l azurecli
 
       - name: Wait for Flux Kustomizations to be Ready
+        env:
+          # Surface the SP creds so the wait script can re-run `az login`
+          # mid-flight with a freshly-minted OIDC JWT. Without this, the
+          # initial JWT expires (5-min lifetime), the 1h AAD token cache
+          # eventually rotates, and kubectl silently loses auth.
+          SPI_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          SPI_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: bash scripts/wait_for_flux_ready.sh --timeout 2700
 
       - name: Acceptance probe (gateway reachable)
