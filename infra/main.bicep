@@ -89,6 +89,9 @@ param dnsZoneName string = ''
 @description('Resource group that contains the Azure DNS zone. Required when dnsZoneName is set.')
 param dnsZoneResourceGroup string = ''
 
+@description('Object ID of the deployer service principal. When set, grants the deployer Key Vault Secrets Officer so the post-deploy bootstrap step can write runtime secrets. Empty string is fine for local dev users with RG Owner.')
+param deployerPrincipalId string = ''
+
 // ──────────────────────────────────────────────────────────
 // Modules (shared resources, parallel)
 // ──────────────────────────────────────────────────────────
@@ -166,6 +169,7 @@ module rbacModule 'modules/rbac.bicep' = {
   name: 'spi-rbac'
   params: {
     principalId: identityModule.outputs.principalId
+    deployerPrincipalId: deployerPrincipalId
     keyVaultName: keyVaultName
     acrName: acrName
     commonStorageName: commonStorageName

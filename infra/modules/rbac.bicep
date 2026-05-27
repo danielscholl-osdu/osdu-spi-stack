@@ -6,6 +6,9 @@
 @description('Principal ID (object ID) of the managed identity.')
 param principalId string
 
+@description('Principal ID (object ID) of the deployer service principal. Empty string skips deployer-side role assignments. Optional because local-dev users typically have Owner on the RG and do not need an explicit grant.')
+param deployerPrincipalId string = ''
+
 @description('Key Vault name (existing, created by keyvault.bicep).')
 param keyVaultName string
 
@@ -24,6 +27,7 @@ param serviceBusNames array
 // Well-known Azure built-in role definition IDs
 var roleIds = {
   keyVaultSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
+  keyVaultSecretsOfficer: 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
   storageBlobDataContributor: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
   storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
   serviceBusDataSender: '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39'
@@ -67,6 +71,19 @@ resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds.keyVaultSecretsUser)
     principalId: principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Deployer needs Secrets Officer to write the post-handoff bootstrap secrets
+// (tbl-storage-endpoint, redis-*, {partition}-elastic-*) that depend on
+// in-cluster passwords and cannot be declared in this template.
+resource deployerKeyVaultSecretsOfficerAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(deployerPrincipalId)) {
+  scope: keyVault
+  name: guid(keyVault.id, deployerPrincipalId, roleIds.keyVaultSecretsOfficer)
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds.keyVaultSecretsOfficer)
+    principalId: deployerPrincipalId
     principalType: 'ServicePrincipal'
   }
 }

@@ -71,6 +71,15 @@ TOOL_REGISTRY: dict[str, ToolInfo] = {
             "windows": "winget install Kubernetes.kubectl",
         },
     },
+    "kubelogin": {
+        "check_args": ["--version"],
+        "description": "AAD exec plugin for kubectl (required by AKS Automatic)",
+        "install": {
+            "darwin": "brew install Azure/kubelogin/kubelogin",
+            "linux": "az aks install-cli",
+            "windows": "az aks install-cli",
+        },
+    },
     "flux": {
         "check_args": ["--version"],
         "description": "Flux CD GitOps toolkit",
