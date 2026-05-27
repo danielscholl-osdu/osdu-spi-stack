@@ -166,8 +166,41 @@ jobs:
             --profile "$PROFILE" \
             --location "$AZURE_LOCATION"
 
+      - name: Refresh Azure login (OIDC)
+        # azure/login@v3 writes the federated assertion to disk once at login.
+        # The OIDC JWT lives 5 min; the cached AAD access tokens live 1h. By
+        # the time spi up finishes (~30 min in), the JWT is dead and any
+        # token cache miss triggers AADSTS700024. Re-running azure/login here
+        # writes a fresh JWT so the Flux wait keeps kubectl healthy for
+        # another hour.
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Re-cache Azure tokens (post spi up)
+        run: |
+          set -euo pipefail
+          # Warm the same audiences as the initial pre-cache. We only need
+          # the AKS server-id for kubelogin during the Flux wait, but warm
+          # all four so spi down also benefits.
+          az account get-access-token --resource https://management.azure.com -o none
+          az account get-access-token --resource 6dae42f8-4368-4678-94ff-3960e28e3630 -o none
+          az account get-access-token --resource https://vault.azure.net -o none
+          az account get-access-token --resource https://graph.microsoft.com -o none
+          # Re-resolve cluster credentials so kubeconfig points at the
+          # right cluster after the login refresh. cluster_name matches the
+          # RG name in this repo's naming convention.
+          az aks get-credentials \
+            --resource-group "${{ steps.env.outputs.rg }}" \
+            --name "${{ steps.env.outputs.rg }}" \
+            --overwrite-existing \
+            --only-show-errors
+          kubelogin convert-kubeconfig -l azurecli
+
       - name: Wait for Flux Kustomizations to be Ready
-        run: bash scripts/wait_for_flux_ready.sh --timeout 1800
+        run: bash scripts/wait_for_flux_ready.sh --timeout 2700
 
       - name: Acceptance probe (gateway reachable)
         run: |
