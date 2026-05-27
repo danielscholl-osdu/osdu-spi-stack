@@ -2,8 +2,13 @@ name: Smoke
 
 # Real `spi up` against the Azure subscription. Provisioning takes ~15 minutes,
 # Flux reconciliation another 10-30 minutes, plus teardown. Schedule + manual
-# only -- never on PR. The orphan-RG sweeper is the safety net if this job's
-# teardown is killed before it runs.
+# only -- never on PR.
+#
+# Three jobs: provision -> verify -> teardown. Each job runs its own
+# azure/login@v3, so the teardown job is guaranteed a fresh OIDC JWT even when
+# `spi up` died long after the original 5-minute GitHub OIDC JWT expired.
+# The orphan-RG sweeper (.github/workflows/sweeper.yml) is the backstop for
+# full-workflow cancellations, which kill `if: always()` jobs.
 
 on:
   schedule:
@@ -31,15 +36,21 @@ concurrency:
   group: smoke
   cancel-in-progress: false
 
+env:
+  AZURE_LOCATION: centralus
+
 jobs:
-  smoke:
+  provision:
     environment: azure-smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
+    outputs:
+      rg: ${{ steps.env.outputs.rg }}
+      suffix: ${{ steps.env.outputs.suffix }}
+      created: ${{ steps.env.outputs.created }}
     env:
       ENV_SUFFIX: ${{ inputs.env_suffix || format('run{0}', github.run_id) }}
       PROFILE: ${{ inputs.profile || 'core' }}
-      AZURE_LOCATION: centralus
     steps:
       - uses: actions/checkout@v6
 
@@ -166,35 +177,50 @@ jobs:
             --profile "$PROFILE" \
             --location "$AZURE_LOCATION"
 
-      - name: Refresh Azure login (OIDC)
-        # azure/login@v3 writes the federated assertion to disk once at login.
-        # The OIDC JWT lives 5 min; the cached AAD access tokens live 1h. By
-        # the time spi up finishes (~30 min in), the JWT is dead and any
-        # token cache miss triggers AADSTS700024. Re-running azure/login here
-        # writes a fresh JWT so the Flux wait keeps kubectl healthy for
-        # another hour.
+  verify:
+    needs: provision
+    environment: azure-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: latest
+
+      - name: Install kubelogin
+        env:
+          KUBELOGIN_VERSION: v0.1.4
+        run: |
+          set -euo pipefail
+          curl -sSLo /tmp/kubelogin.zip \
+            "https://github.com/Azure/kubelogin/releases/download/${KUBELOGIN_VERSION}/kubelogin-linux-amd64.zip"
+          unzip -q /tmp/kubelogin.zip -d /tmp/kubelogin
+          sudo install /tmp/kubelogin/bin/linux_amd64/kubelogin /usr/local/bin/kubelogin
+          kubelogin --version
+
+      - name: Install Flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Azure login (OIDC)
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Re-cache Azure tokens (post spi up)
+      - name: Cache Azure tokens and get AKS credentials
         run: |
           set -euo pipefail
-          # Warm the same audiences as the initial pre-cache. We only need
-          # the AKS server-id for kubelogin during the Flux wait, but warm
-          # all four so spi down also benefits.
+          # Warm the audiences kubectl/Flux reach during the wait, while the
+          # GitHub OIDC JWT is still alive.
           az account get-access-token --resource https://management.azure.com -o none
           az account get-access-token --resource 6dae42f8-4368-4678-94ff-3960e28e3630 -o none
-          az account get-access-token --resource https://vault.azure.net -o none
-          az account get-access-token --resource https://graph.microsoft.com -o none
-          # Re-resolve cluster credentials so kubeconfig points at the
-          # right cluster after the login refresh. cluster_name matches the
-          # RG name in this repo's naming convention.
           az aks get-credentials \
-            --resource-group "${{ steps.env.outputs.rg }}" \
-            --name "${{ steps.env.outputs.rg }}" \
+            --resource-group "${{ needs.provision.outputs.rg }}" \
+            --name "${{ needs.provision.outputs.rg }}" \
             --overwrite-existing \
             --only-show-errors
           kubelogin convert-kubeconfig -l azurecli
@@ -223,12 +249,35 @@ jobs:
           path: diagnostics/
           if-no-files-found: ignore
 
-      - name: spi down (teardown)
-        if: always()
-        run: |
-          uv run spi down --env "ci-${{ steps.env.outputs.suffix }}" || true
+  teardown:
+    needs: [provision, verify]
+    # Run even when provision or verify fail or are cancelled. The guard skips
+    # the (currently impossible) case where provision itself was skipped, so a
+    # future precondition job can short-circuit the workflow without spawning
+    # a no-op teardown. Full-workflow cancellation still bypasses this; the
+    # sweeper is the backstop for that.
+    if: ${{ always() && needs.provision.result != 'skipped' }}
+    environment: azure-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Azure login (OIDC)
+        # Fresh OIDC JWT at the start of this job is the entire fix for the
+        # orphan-RG problem: the old single-job design ran teardown with a
+        # JWT that had been dead for 25+ minutes.
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Force RG delete (backup teardown)
-        if: always()
+      - name: Force RG delete
         run: |
-          az group delete --name "${{ steps.env.outputs.rg }}" --yes --no-wait || true
+          set -euo pipefail
+          RG="${{ needs.provision.outputs.rg }}"
+          if [ -z "$RG" ]; then
+            echo "No RG output from provision job; nothing to delete."
+            exit 0
+          fi
+          echo "Deleting resource group: $RG"
+          az group delete --name "$RG" --yes --no-wait || true
