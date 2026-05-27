@@ -43,10 +43,11 @@ jobs:
   provision:
     environment: azure-smoke
     runs-on: ubuntu-latest
-    # Main infra Bicep (~30 min in centralus) + Flux extension Bicep (~5-10 min)
-    # + tool install + Azure login overhead. Run 26519683457 hit the previous
-    # 30-min ceiling mid-Flux-extension deploy.
-    timeout-minutes: 45
+    # AKS Automatic Bicep alone takes ~29 min in centralus (observed in runs
+    # 26519683457 and 26521608601). Add PaaS Bicep (~3 min), K8s bootstrap
+    # (~30s), Flux extension Bicep (~10-15 min), tool install + login
+    # overhead, and total spi up is ~45-50 min. 60 gives ~10 min headroom.
+    timeout-minutes: 60
     outputs:
       rg: ${{ steps.env.outputs.rg }}
       suffix: ${{ steps.env.outputs.suffix }}
