@@ -51,4 +51,4 @@ When writing a new design doc, copy the shape of an existing one and replace the
 
 **Write a new ADR instead when** you are making a fresh architectural choice, not explaining an existing one. Design docs document the present; ADRs capture the decision moment.
 
-**Writing style** follows the project convention in `CLAUDE.md`: no em dashes, no incident narrative, descriptive headings.
+**Writing style**: no em dashes, no incident narrative, descriptive headings.

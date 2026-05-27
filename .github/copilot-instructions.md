@@ -114,31 +114,6 @@ When investigating service behavior, configuration, or bugs:
 This avoids wasting tokens reading non-Azure implementations that will never run
 in an SPI Stack deployment.
 
-## Agent Skills
-
-This repo includes portable [Agent Skills](https://agentskills.io) in `.agents/skills/`.
-They are auto-discovered by compatible tools (Claude Code, GitHub Copilot, Cursor, Gemini CLI,
-pi, OpenCode, Goose, Junie, and 20+ others).
-
-Skills are symlinked into `.claude/skills/` for Claude Code discovery. If the symlink is missing:
-```bash
-ln -sf ../.agents/skills .claude/skills
-```
-
-| Skill | Purpose |
-|-------|---------|
-| `prime` | Lightweight codebase overview -- structure, tech stack, and available commands |
-| `setup` | Check prerequisites and install CLI tool dependencies (az, kubectl, flux, helm, uv) |
-| `clone` | Clone OSDU GitLab repositories with optional worktree layout |
-| `osdu-api` | OSDU platform API access via Istio gateway and Azure Entra ID |
-| `osdu-gitlab` | GitLab operations -- glab guardrails, MR/pipeline monitoring, contributor analysis |
-| `osdu-mr` | MR lifecycle -- code review with pipeline diagnostics, trusted branch sync |
-| `osdu-test` | Run Java integration tests against a live SPI Stack environment |
-| `deps` | Dependency analysis, vulnerability scanning, and risk-prioritized remediation |
-| `ship` | Ship code changes to GitLab -- commit, push, and create merge requests |
-
-For prerequisite diagnostics, tool installation, and authentication setup, use the `setup` skill.
-
 ## OSDU Service Images
 
 Services use Azure SPI images from the OSDU community registry:

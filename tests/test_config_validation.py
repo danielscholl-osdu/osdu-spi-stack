@@ -39,9 +39,9 @@ class TestValidPartitions:
         assert cfg.data_partitions == ["p1", "p2", "tenant42"]
 
     def test_max_length_partition_with_env(self):
-        # env "dev1" (4) + "osdu" prefix (4) = 8; partition can be up to 16
-        cfg = Config(env="dev1", data_partitions=["abcdefghijklmnop"])
-        assert cfg.data_partitions == ["abcdefghijklmnop"]
+        # "osdu" (4) + env "dev1" (4) + suffix (5) = 13; partition can be up to 11.
+        cfg = Config(env="dev1", data_partitions=["abcdefghijk"])
+        assert cfg.data_partitions == ["abcdefghijk"]
 
 
 class TestInvalidPartitionNames:
@@ -68,7 +68,7 @@ class TestInvalidPartitionNames:
 
 class TestInvalidLength:
     def test_long_env_plus_partition_exceeds_24(self):
-        # "osdu" (4) + "longprodenv2026" (15) + "tenanteast" (10) = 29
+        # "osdu" (4) + "longprodenv2026" (15) + "tenanteast" (10) + suffix (5) = 34
         with pytest.raises(ValidationError) as exc_info:
             Config(env="longprodenv2026", data_partitions=["tenanteast"])
         msg = _validation_message(exc_info)
@@ -76,13 +76,13 @@ class TestInvalidLength:
         assert "tenanteast" in msg
 
     def test_short_partition_with_long_env_fails(self):
-        # "osdu" (4) + "production2026east" (18) + "p1" (2) = 24, OK
-        cfg = Config(env="production2026east", data_partitions=["p1"])
+        # "osdu" (4) + "productiondev" (13) + "p1" (2) + suffix (5) = 24, OK
+        cfg = Config(env="productiondev", data_partitions=["p1"])
         assert cfg.data_partitions == ["p1"]
 
         # add one more char on partition: 25, fail
         with pytest.raises(ValidationError):
-            Config(env="production2026east", data_partitions=["p11"])
+            Config(env="productiondev", data_partitions=["p11"])
 
     def test_env_dashes_stripped_for_length_check(self):
         # "osdu" (4) + "dev-1" stripped to "dev1" (4) + "tenant" (6) = 14, OK

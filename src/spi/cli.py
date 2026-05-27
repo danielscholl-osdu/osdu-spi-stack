@@ -118,9 +118,11 @@ def _build_config(
     dns_zone: str = "",
     ingress_prefix: str = "",
     acme_email: str = "",
+    name_suffix: str = "",
 ) -> Config:
     return Config.from_env(
         env=env,
+        name_suffix=name_suffix,
         profile=profile,
         repo_url=repo_url,
         repo_branch=branch,
@@ -131,6 +133,57 @@ def _build_config(
         ingress_prefix=ingress_prefix,
         acme_email=acme_email,
     )
+
+
+def _resolve_name_suffix(env: str, for_up: bool) -> str:
+    """Resolve the per-deployment name suffix from the resource group tag.
+
+    Lookup order:
+      1. If the RG already carries the `spi-name-suffix` tag, use its value
+         (empty string = legacy pre-suffix deployment, pin to legacy names).
+      2. If the RG exists without the tag but holds a legacy unsuffixed Key
+         Vault, treat as legacy: return "" so names stay unsuffixed. On `up`
+         we also persist the empty marker so future runs short-circuit at
+         step 1.
+      3. Otherwise mint a new random suffix. On `up` for an existing RG
+         (resumed/failed deploy) we persist immediately; create_resource_group
+         writes the tag for a brand-new RG via the --tags flag.
+
+    `for_up=False` (used by `down`) skips persistence — it's read-only so the
+    displayed config table accurately reflects what's in Azure.
+    """
+    from .config import generate_name_suffix
+
+    if not env:
+        return ""
+
+    from .azure_infra import detect_legacy_keyvault, read_rg_suffix_tag, write_rg_suffix_tag
+
+    rg = f"spi-stack-{env}"
+    existing = read_rg_suffix_tag(rg)
+    if existing is not None:
+        return existing
+
+    # RG missing or RG present without our tag. Distinguish legacy from fresh.
+    if detect_legacy_keyvault(rg, env):
+        if for_up:
+            write_rg_suffix_tag(rg, "")
+        return ""
+
+    suffix = generate_name_suffix()
+    if for_up:
+        # Brand-new RGs get tagged by create_resource_group via --tags.
+        # If the RG already exists (resumed/failed deploy with no legacy KV),
+        # persist now so subsequent runs are stable.
+        rg_exists = run_command(
+            ["az", "group", "exists", "--name", rg],
+            description=f"Check resource group exists: {rg}",
+            display=False,
+            check=False,
+        )
+        if rg_exists.returncode == 0 and rg_exists.stdout.strip().lower() == "true":
+            write_rg_suffix_tag(rg, suffix)
+    return suffix
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +290,20 @@ def up(
     if profile is None:
         profile = Profile.CORE
 
+    title = "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack"
+    if dry_run:
+        title += "\n[warning]DRY RUN: previewing Bicep changes only[/warning]"
+    else:
+        title += "\nAKS Automatic + Azure PaaS + Flux CD GitOps"
+
+    console.print(Panel(title, border_style="cyan"))
+    check_prerequisites(PREREQ_TOOLS)
+
+    # Resolve the persistent suffix from the RG tag (or mint a new one) so
+    # derived resource names are stable across `spi up` re-runs and don't
+    # collide with deployments in other subscriptions.
+    name_suffix = _resolve_name_suffix(env, for_up=True)
+
     config = _build_config(
         profile=profile,
         env=env,
@@ -248,18 +315,10 @@ def up(
         dns_zone=dns_zone,
         ingress_prefix=ingress_prefix,
         acme_email=resolve_acme_email(acme_email),
+        name_suffix=name_suffix,
     )
 
-    title = "[bold]SPI Stack[/bold] - Azure-native OSDU Software Stack"
-    if dry_run:
-        title += "\n[warning]DRY RUN: previewing Bicep changes only[/warning]"
-    else:
-        title += "\nAKS Automatic + Azure PaaS + Flux CD GitOps"
-
-    console.print(Panel(title, border_style="cyan"))
-
     _show_config(config)
-    check_prerequisites(PREREQ_TOOLS)
 
     try:
         from .deploy import deploy_azure
@@ -298,12 +357,14 @@ def down(
     env: str = typer.Option(..., "--env", help="Environment name"),
 ):
     """Tear down all Azure resources."""
-    config = _build_config(env=env)
-
     console.print(Panel("[bold]SPI Stack Cleanup[/bold]", border_style="cyan"))
-    _show_config(config)
-
     check_prerequisites(["az"])
+
+    # Read-only lookup so the displayed config table reflects what's in
+    # Azure. cleanup_azure itself only deletes the resource group.
+    name_suffix = _resolve_name_suffix(env, for_up=False)
+    config = _build_config(env=env, name_suffix=name_suffix)
+    _show_config(config)
 
     from .deploy import cleanup_azure
 

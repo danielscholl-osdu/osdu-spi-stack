@@ -32,6 +32,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/spi"]
 
+# Bundle the Bicep templates inside the wheel at spi/infra/. The CLI
+# resolves them via src/spi/paths.py:INFRA_ROOT, which prefers the
+# packaged copy and falls back to <repo>/infra for source checkouts.
+[tool.hatch.build.targets.wheel.force-include]
+"infra" = "spi/infra"
+
 # Belt-and-suspenders alongside .gitignore: hatchling's default sdist scan can
 # pull in transient build/cache directories that contain absolute symlinks to
 # the host Python interpreter. Force them out of the sdist regardless of which

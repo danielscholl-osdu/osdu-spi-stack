@@ -177,13 +177,6 @@ uv run spi check
 
 **System requirements**: Azure subscription with permissions to create resource groups and AKS clusters.
 
-<details>
-<summary>AI-assisted setup</summary>
-
-If you use an AI coding assistant (Claude Code, GitHub Copilot, Cursor), this project includes an [AGENTS.md](AGENTS.md) file to help it interpret `spi check` output and guide prerequisite installation. `spi check` remains the source of truth.
-
-</details>
-
 
 ## CLI Reference
 
@@ -207,7 +200,6 @@ Use `--dry-run` on `spi up` to preview the Bicep changes (`az deployment group w
 - [Architecture](docs/architecture.md)  -- 30,000-ft overview of the system
 - [Design docs](docs/design/)  -- how subsystems actually work (deployment lifecycle, Bicep, Flux, Workload Identity, ingress, secrets)
 - [ADRs](docs/decisions/)  -- decision records with alternatives considered
-- [AI Skills](docs/ai-skills.md)  -- portable agent skills bundled with the repo
 
 ## License
 

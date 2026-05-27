@@ -15,6 +15,7 @@
 """Configuration models for SPI Stack."""
 
 import re
+import secrets
 from enum import Enum
 from typing import List
 
@@ -25,12 +26,27 @@ from pydantic import BaseModel, model_validator
 # so allowing them here would silently collide two configured partitions.
 _PARTITION_NAME_RE = re.compile(r"^[a-z0-9]+$")
 
-# Storage account naming is the binding constraint: `osdu{env}{partition}`
-# with hyphens stripped, max 24 chars (`_storage_name` truncates with [:24]
-# so over-budget names would silently collapse onto the 24-char prefix).
+# Storage account naming is the binding constraint: `osdu{env}{partition}{suffix}`
+# with hyphens stripped, max 24 chars. The 5-char suffix is randomly generated
+# on the first `spi up` for a given environment and persisted as the
+# `spi-name-suffix` tag on the resource group; subsequent runs read it back.
+# The validator reserves the suffix budget unconditionally so partition
+# choices that would overflow a future deployment fail at config-build time.
 # Cosmos (44) and Service Bus (50) always fit when storage fits.
 _STORAGE_NAME_PREFIX = "osdu"
 _STORAGE_NAME_MAX_LEN = 24
+_NAME_SUFFIX_LEN = 5
+
+# Tag key on the resource group that carries the per-deployment suffix.
+# An empty value marks a pre-suffix (legacy) deployment whose names must
+# stay unsuffixed to keep matching the resources already in Azure.
+RG_SUFFIX_TAG = "spi-name-suffix"
+
+
+def generate_name_suffix() -> str:
+    """Mint a fresh random suffix for a new deployment."""
+    # token_hex returns 2 chars per byte; 3 bytes -> 6 hex chars, take 5.
+    return secrets.token_hex(3)[:_NAME_SUFFIX_LEN]
 
 
 class Profile(str, Enum):
@@ -61,6 +77,11 @@ class Config(BaseModel):
     # Azure
     resource_group: str = BASE_NAME
     location: str = "eastus2"
+    # Random 5-char suffix used by globally unique resource names (storage,
+    # KV, ACR, Cosmos, Service Bus). Persisted as the `spi-name-suffix` tag
+    # on the resource group; an empty value marks a legacy (pre-suffix)
+    # deployment whose names must stay unsuffixed.
+    name_suffix: str = ""
     # Data partitions
     data_partitions: List[str] = ["opendes"]
     # Derived names (set in from_env)
@@ -77,20 +98,27 @@ class Config(BaseModel):
     ingress_fqdn: str = ""  # azure mode: resolved LB FQDN
 
     @staticmethod
-    def from_env(env: str, **kwargs) -> "Config":
-        """Create config with names derived from --env suffix."""
+    def from_env(env: str, name_suffix: str = "", **kwargs) -> "Config":
+        """Create config with names derived from --env and a deployment suffix.
+
+        name_suffix is the random 5-char value resolved from (or minted for)
+        the resource group's `spi-name-suffix` tag. Pass "" to render legacy
+        unsuffixed names — used both for legacy deployments and for tests
+        that don't exercise the Azure plumbing.
+        """
         cluster_name = f"{BASE_NAME}-{env}" if env else BASE_NAME
         resource_group = f"{BASE_NAME}-{env}" if env else BASE_NAME
 
         # Azure naming: alphanumeric only, 3-24 chars for KV, 5-50 for ACR
         safe_env = env.replace("-", "").replace("_", "")
-        keyvault_name = f"osdu{safe_env}"[:24] if env else "osduspistack"
-        acr_name = f"osdu{safe_env}"[:50] if env else "osduspistack"
+        keyvault_name = f"osdu{safe_env}{name_suffix}"[:24] if env else "osduspistack"
+        acr_name = f"osdu{safe_env}{name_suffix}"[:50] if env else "osduspistack"
         identity_name = f"{cluster_name}-osdu-identity"
         external_dns_identity_name = f"{cluster_name}-external-dns"
 
         return Config(
             env=env,
+            name_suffix=name_suffix,
             cluster_name=cluster_name,
             resource_group=resource_group,
             identity_name=identity_name,
@@ -121,6 +149,9 @@ class Config(BaseModel):
             raise ValueError(f"data_partitions contains duplicate names: {duplicates}")
 
         sanitized_env = self.env.replace("-", "").replace("_", "")
+        # Reserve the suffix budget even when subscription_id is unknown so
+        # validation matches the names produced at deploy time.
+        suffix_placeholder = "x" * _NAME_SUFFIX_LEN
         for p in partitions:
             if not _PARTITION_NAME_RE.fullmatch(p):
                 raise ValueError(
@@ -128,13 +159,15 @@ class Config(BaseModel):
                     f"(matches [a-z0-9]+); hyphens and underscores are stripped "
                     f"during Azure resource naming and would silently collide"
                 )
-            storage_name = f"{_STORAGE_NAME_PREFIX}{sanitized_env}{p}"
+            storage_name = f"{_STORAGE_NAME_PREFIX}{sanitized_env}{p}{suffix_placeholder}"
             if len(storage_name) > _STORAGE_NAME_MAX_LEN:
                 raise ValueError(
                     f"partition name {p!r} produces storage account name "
-                    f"{storage_name!r} (length {len(storage_name)}), exceeding "
-                    f"the {_STORAGE_NAME_MAX_LEN}-char Azure limit. Shorten the "
-                    f"env (currently {self.env!r}) or the partition name."
+                    f"{storage_name!r} (length {len(storage_name)}, includes a "
+                    f"{_NAME_SUFFIX_LEN}-char per-subscription uniqueness "
+                    f"suffix), exceeding the {_STORAGE_NAME_MAX_LEN}-char Azure "
+                    f"limit. Shorten the env (currently {self.env!r}) or the "
+                    f"partition name."
                 )
         return self
 

@@ -47,7 +47,7 @@ from .ingress import (
     get_ingress_ip,
     resolve_post_deploy_inputs,
 )
-from .paths import REPO_ROOT
+from .paths import INFRA_ROOT
 from .secrets import ensure_secrets, get_or_create_seed
 from .shell import kubectl_apply_yaml, run_command
 from .templates import (
@@ -59,7 +59,7 @@ from .templates import (
 
 GITREPO_NAME = "osdu-spi-stack-system"
 
-INFRA_FLUX_BICEP = REPO_ROOT / "infra" / "flux.bicep"
+INFRA_FLUX_BICEP = INFRA_ROOT / "flux.bicep"
 
 
 def _resolve_aad_client_id(identity_client_id: str) -> str:

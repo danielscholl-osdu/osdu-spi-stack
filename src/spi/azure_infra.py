@@ -49,41 +49,62 @@ import time
 from typing import Any, Dict
 
 from .bicep import run_bicep_deployment
-from .config import Config
+from .config import RG_SUFFIX_TAG, Config
 from .console import console, display_result
-from .paths import REPO_ROOT
+from .paths import INFRA_ROOT
 from .shell import run_command
 
-INFRA_MAIN_BICEP = REPO_ROOT / "infra" / "main.bicep"
-INFRA_AKS_BICEP = REPO_ROOT / "infra" / "aks.bicep"
+INFRA_MAIN_BICEP = INFRA_ROOT / "main.bicep"
+INFRA_AKS_BICEP = INFRA_ROOT / "aks.bicep"
 
 
 # ─────────────────────────────────────────────────────────────
 # Resource-name helpers (preserve the existing naming contract).
 # Bicep consumes these via parameters; the template does not
 # re-derive names.
+#
+# Every globally unique resource (storage, Cosmos, Service Bus)
+# carries the per-subscription suffix from config.name_suffix so
+# `spi up --env dev1` in two different subscriptions does not
+# collide. KV and ACR already include the suffix via Config.from_env.
 # ─────────────────────────────────────────────────────────────
 
 
-def _storage_name(prefix: str, env: str) -> str:
+def _with_suffix(base: str, suffix: str, limit: int) -> str:
+    """Append the per-subscription suffix and truncate to the Azure limit.
+
+    Truncates the base first to reserve room for the suffix; a naive
+    f"{base}{suffix}"[:limit] would clip the suffix off for long bases
+    (e.g. env "productiondev" + "common") and reintroduce global-name
+    collisions.
+    """
+    if not suffix:
+        return base[:limit]
+    return f"{base[: max(0, limit - len(suffix))]}{suffix}"
+
+
+def _storage_name(prefix: str, env: str, suffix: str = "") -> str:
     """Generate a storage account name (lowercase alphanumeric, 3-24 chars)."""
     safe = (prefix + env).replace("-", "").replace("_", "").lower()
-    return safe[:24]
+    return _with_suffix(safe, suffix, 24)
 
 
-def _sb_name(partition: str, env: str) -> str:
+def _sb_name(partition: str, env: str, suffix: str = "") -> str:
     """Service Bus namespace name."""
-    return f"osdu-{env}-{partition}-bus"[:50]
+    base = f"osdu-{env}-{partition}-bus"
+    return _with_suffix(base, f"-{suffix}" if suffix else "", 50)
 
 
-def _cosmos_sql_name(partition: str, env: str) -> str:
+def _cosmos_sql_name(partition: str, env: str, suffix: str = "") -> str:
     """CosmosDB SQL account name for a partition."""
-    return f"osdu-{env}-{partition}-cosmos"[:44]
+    base = f"osdu-{env}-{partition}-cosmos"
+    return _with_suffix(base, f"-{suffix}" if suffix else "", 44)
 
 
-def _cosmos_gremlin_name(env: str) -> str:
+def _cosmos_gremlin_name(env: str, suffix: str = "") -> str:
     """CosmosDB Gremlin account name."""
-    return f"osdu-{env}-graph"[:44]
+    base = f"osdu-{env}-graph"
+    return _with_suffix(base, f"-{suffix}" if suffix else "", 44)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -93,21 +114,105 @@ def _cosmos_gremlin_name(env: str) -> str:
 
 def create_resource_group(config: Config):
     console.print("\n[bold]Creating resource group...[/bold]")
+    # `az group create` is idempotent. The `--tags` flag REPLACES the entire
+    # tag set, so we only pass it the first time (when no suffix tag exists
+    # yet — read_rg_suffix_tag returns None). Otherwise the tag has already
+    # been written, and we re-run create-without-tags to leave it intact.
+    cmd = [
+        "az",
+        "group",
+        "create",
+        "--name",
+        config.resource_group,
+        "--location",
+        config.location,
+        "--output",
+        "json",
+    ]
+    if read_rg_suffix_tag(config.resource_group) is None:
+        cmd.extend(["--tags", f"{RG_SUFFIX_TAG}={config.name_suffix}"])
+    run_command(cmd, description=f"Create resource group: {config.resource_group}")
+    display_result(f"Resource group {config.resource_group} ready")
+
+
+def read_rg_suffix_tag(resource_group: str) -> "str | None":
+    """Read the `spi-name-suffix` tag from the resource group.
+
+    Returns:
+      - the suffix string (possibly empty for legacy deployments) when the
+        tag exists,
+      - None when the resource group doesn't exist or doesn't carry the tag.
+    """
+    result = run_command(
+        [
+            "az",
+            "group",
+            "show",
+            "--name",
+            resource_group,
+            "--query",
+            f"tags.\"{RG_SUFFIX_TAG}\"",
+            "--output",
+            "tsv",
+        ],
+        description=f"Read suffix tag from resource group: {resource_group}",
+        display=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    # `az` prints "None" (literal) when the tag is missing on an existing RG.
+    if not value or value == "None":
+        return None
+    return value
+
+
+def write_rg_suffix_tag(resource_group: str, suffix: str) -> None:
+    """Persist the suffix on the resource group without disturbing other tags."""
     run_command(
         [
             "az",
             "group",
-            "create",
+            "update",
             "--name",
-            config.resource_group,
-            "--location",
-            config.location,
+            resource_group,
+            "--set",
+            f"tags.{RG_SUFFIX_TAG}={suffix}",
             "--output",
-            "json",
+            "none",
         ],
-        description=f"Create resource group: {config.resource_group}",
+        description=f"Persist {RG_SUFFIX_TAG} tag on resource group: {resource_group}",
     )
-    display_result(f"Resource group {config.resource_group} ready")
+
+
+def detect_legacy_keyvault(resource_group: str, env: str) -> bool:
+    """True when an existing unsuffixed Key Vault is present in the RG.
+
+    Used to pin a pre-suffix deployment to legacy naming so re-runs reconcile
+    the existing resources instead of standing up a parallel set.
+    """
+    if not env:
+        return False
+    safe_env = env.replace("-", "").replace("_", "")
+    legacy_kv = f"osdu{safe_env}"[:24]
+    result = run_command(
+        [
+            "az",
+            "keyvault",
+            "list",
+            "--resource-group",
+            resource_group,
+            "--query",
+            f"[?name=='{legacy_kv}'].name",
+            "--output",
+            "tsv",
+        ],
+        description=f"Probe for legacy Key Vault: {legacy_kv}",
+        display=False,
+        check=False,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def create_aks_automatic(config: Config, dry_run: bool = False) -> Dict[str, Any]:
@@ -430,6 +535,7 @@ def _recover_soft_deleted_keyvault(config: Config):
 
 def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
     """Translate Config into the parameter dict consumed by infra/main.bicep."""
+    s = config.name_suffix
     return {
         "envName": config.env,
         "location": config.location,
@@ -439,12 +545,12 @@ def _build_bicep_params(config: Config, oidc_issuer: str) -> Dict[str, Any]:
         "acrName": config.acr_name,
         "dataPartitions": config.data_partitions,
         "primaryPartition": config.primary_partition,
-        "gremlinAccountName": _cosmos_gremlin_name(config.env),
-        "commonStorageName": _storage_name("osdu" + config.env + "common", ""),
-        "cosmosSqlNames": [_cosmos_sql_name(p, config.env) for p in config.data_partitions],
-        "serviceBusNames": [_sb_name(p, config.env) for p in config.data_partitions],
+        "gremlinAccountName": _cosmos_gremlin_name(config.env, s),
+        "commonStorageName": _storage_name("osdu" + config.env + "common", "", s),
+        "cosmosSqlNames": [_cosmos_sql_name(p, config.env, s) for p in config.data_partitions],
+        "serviceBusNames": [_sb_name(p, config.env, s) for p in config.data_partitions],
         "partitionStorageNames": [
-            _storage_name("osdu" + config.env + p, "") for p in config.data_partitions
+            _storage_name("osdu" + config.env + p, "", s) for p in config.data_partitions
         ],
         "oidcIssuerUrl": oidc_issuer,
         # DNS-mode only; both are empty strings in ip/azure modes and the
