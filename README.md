@@ -125,7 +125,7 @@ After that handoff, **Flux owns steady-state reconciliation** and continuously c
 4. **K8s Bootstrap**: Namespaces, StorageClasses, secrets, ConfigMap, ServiceAccount
 5. **GitOps**: AKS native Flux extension pointing to this repo
 
-A full `spi up` typically takes ~15 minutes, primarily for Azure resource provisioning.
+A full `spi up` typically takes ~45-50 minutes in `centralus`, dominated by AKS Automatic provisioning (~30 min). Other regions may vary.
 
 </details>
 

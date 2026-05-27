@@ -57,7 +57,7 @@ The deployment pipeline has two phases: the CLI's Bicep-driven bootstrap (top) a
 | 5. Flux activation | Bicep (`infra/flux.bicep`) | AKS Flux extension + `fluxConfigurations` with two Kustomizations (stack profile, ingress mode) |
 | 6. Runtime KV secrets | `az keyvault secret set` | Per-partition Elasticsearch credentials, Redis hostname and password, common-storage table endpoint (runs after middleware is Ready) |
 
-A full `spi up` typically takes ~15 minutes, primarily for Azure resource provisioning. `spi up --dry-run` runs `az deployment group what-if` against both Bicep templates and skips everything after phase 1.
+A full `spi up` typically takes ~45-50 minutes in `centralus`, dominated by AKS Automatic provisioning (~30 min) with PaaS Bicep (~3 min), K8s bootstrap (~1 min), and the Flux extension Bicep (~10-15 min) filling the remainder. `spi up --dry-run` runs `az deployment group what-if` against both Bicep templates and skips everything after phase 1.
 
 ## Runtime Architecture
 
@@ -75,7 +75,7 @@ The `flux-system` namespace is managed by the AKS Flux extension and hosts Flux 
 
 ### Layered dependency model
 
-The core profile (`software/stacks/osdu/profiles/core/stack.yaml`) defines eight ordered layers plus a schema-load one-shot. Kustomizations within a layer reconcile in parallel.
+The core profile (`software/stacks/osdu/profiles/core/stack.yaml`) defines seven major dependency layers (numbered 0-6) plus per-partition and schema-load one-shot Jobs. Sub-letter groupings (`0a`/`0b`, `4a`/`4b`) reconcile in parallel within their parent layer.
 
 | Layer | Name | Depends on |
 |-------|------|------------|
@@ -87,7 +87,8 @@ The core profile (`software/stacks/osdu/profiles/core/stack.yaml`) defines eight
 | 4a | OSDU configuration placeholder | 0a |
 | 4b | Bootstrap (trust-manager Bundles + Redis DestinationRule) | trust-manager, ES, Redis, 4a |
 | 5 | Core OSDU services | 4b + 0b |
-| 5b | Schema load (one-shot Job) | 5 |
+| 5a | Partition + entitlements bootstrap (per-partition Jobs) | 5 |
+| 5b | Schema load (one-shot Job) | 5a |
 | 6 | Reference services | 5, 5b |
 
 The ingress profile (`software/stacks/osdu/ingress/<mode>/`) adds Kustomizations at Layer 1 (cert issuers, ExternalDNS in `dns` mode, TLS overlays) and Layer 6 (HTTPRoutes). See [ADR-007](decisions/007-layered-kustomization-ordering.md) and [ADR-012](decisions/012-ingress-profiles.md).

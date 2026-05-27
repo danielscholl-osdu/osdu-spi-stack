@@ -153,7 +153,7 @@ Services use Azure SPI images from the OSDU community registry:
 ## Deployment Workflow
 
 1. `spi check` -- verify az, bicep, kubectl, flux, helm installed
-2. `spi up --env dev1` -- provisions Azure infra (~15 min), bootstraps K8s, activates GitOps
+2. `spi up --env dev1` -- provisions Azure infra (~45-50 min, mostly AKS Automatic), bootstraps K8s, activates GitOps
    - RG + AKS via `az` CLI
    - Identity + KV + ACR + CosmosDB + Service Bus + Storage + RBAC via
      a single `az deployment group create` against `infra/main.bicep`

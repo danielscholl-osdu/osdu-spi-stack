@@ -2,9 +2,9 @@
 
 **What this explains.** Everything that happens between `spi up` exiting and a healthy OSDU cluster serving requests, broken into three phases with concrete timings.
 
-**Why it matters.** A `spi up` of the default profile takes about 15 minutes. If you do not know what phase you are in, a 10-minute wait on what looks like silence feels like a bug. This doc lays out the phases so you can watch the right signals.
+**Why it matters.** A `spi up` of the default profile takes ~45-50 minutes in `centralus`, dominated by AKS Automatic provisioning. If you do not know what phase you are in, a long wait on what looks like silence feels like a bug. This doc lays out the phases so you can watch the right signals.
 
-> **Companion docs.** [Bicep architecture](bicep-architecture.md) covers what each Bicep deployment lands. [Flux reconciliation](flux-reconciliation.md) covers the layer DAG from the reconcile-loop perspective. Read this for "where am I in the 15-minute wait."
+> **Companion docs.** [Bicep architecture](bicep-architecture.md) covers what each Bicep deployment lands. [Flux reconciliation](flux-reconciliation.md) covers the layer DAG from the reconcile-loop perspective. Read this for "where am I in the spi up wait."
 
 ## The three phases
 
@@ -12,9 +12,11 @@
 
 | Phase | Who drives it | Duration | What it produces |
 |---|---|---|---|
-| 1. CLI bootstrap | The `spi` CLI | ~5 min | A cluster with the AKS Flux extension installed and a `GitRepository` registered |
-| 2. Flux reconciliation | Flux CD | ~10 min | A healthy cluster running the chosen profile and ingress mode |
+| 1. CLI bootstrap | The `spi` CLI | ~40-45 min | A cluster with the AKS Flux extension installed and a `GitRepository` registered |
+| 2. Flux reconciliation | Flux CD | ~10-30 min | A healthy cluster running the chosen profile and ingress mode |
 | 3. Suspended steady state | No one | indefinite | Pods keep running; Flux stops fetching new commits |
+
+Phase 1 is the long pole: AKS Automatic provisioning alone takes ~30 min, with the Flux extension Bicep adding another ~10-15 min on top of the smaller PaaS deploy and K8s bootstrap.
 
 ## Phase 1: CLI bootstrap
 
@@ -26,7 +28,7 @@ The sequence inside `azure_infra.deploy()` is:
 2. **Prerequisite check.** `check_prerequisites()` runs each tool in the registry (`az`, `bicep`, `kubectl`, `flux`, `helm`) and fails fast if anything is missing.
 3. **Resource group.** `az group create --name spi-stack-<env> --location <region>`. The one thing Bicep cannot do itself.
 4. **Key Vault soft-delete recovery.** If a prior `spi down` left a soft-deleted Key Vault with the same name, `az keyvault recover` brings it back so the upcoming Bicep deploy does not collide.
-5. **`infra/aks.bicep` deploy.** AKS Automatic cluster, BYO VNet + NAT gateway, managed Istio. Via the AVM `container-service/managed-cluster` module. This is the slowest single step (~5-7 min).
+5. **`infra/aks.bicep` deploy.** AKS Automatic cluster, BYO VNet + NAT gateway, managed Istio. Via the AVM `container-service/managed-cluster` module. This is the slowest single step (~30 min in `centralus`).
 6. **`az aks get-credentials`** merges the kubeconfig.
 7. **`az aks mesh enable-istio-cni`.** The one Istio knob AVM v0.13.0 types out of the managed-cluster schema; the CLI patches it imperatively. See [ADR-008](../decisions/008-bicep-for-azure-provisioning.md).
 8. **`infra/main.bicep` deploy.** Identity, RBAC, Key Vault (with Bicep-resolved secrets), ACR, Cosmos DB Gremlin, per-partition (Cosmos SQL + Service Bus + Storage), common Storage, optional `external-dns-*` and `vnet` for `dns` ingress.

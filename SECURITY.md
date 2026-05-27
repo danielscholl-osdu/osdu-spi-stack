@@ -1,24 +1,14 @@
-# Security Policy
+<!-- BEGIN MICROSOFT SECURITY.MD V1.0.0 BLOCK -->
 
-## Reporting a vulnerability
+## Security
 
-Please report security vulnerabilities **privately**, not through public
-GitHub issues.
+Microsoft takes the security of our software products and services seriously, which
+includes all source code repositories in our GitHub organizations.
 
-Use GitHub's [private security advisory](https://github.com/danielscholl-osdu/osdu-spi-stack/security/advisories/new)
-form. We aim to acknowledge reports within 5 business days.
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-Include:
-- A description of the vulnerability and its impact.
-- Steps or a proof of concept to reproduce.
-- Any suggested remediation, if applicable.
+For security reporting information, locations, contact information, and policies,
+please review the latest guidance for Microsoft repositories at
+[https://aka.ms/SECURITY.md](https://aka.ms/SECURITY.md).
 
-## Scope
-
-This policy covers code in the `danielscholl-osdu/osdu-spi-stack` repository:
-the `spi` Python CLI, the Bicep templates under `infra/`, and the Flux/Helm
-manifests under `software/`.
-
-Vulnerabilities in upstream OSDU services, Azure platform services, or
-third-party Helm charts are out of scope here; please report those to the
-respective upstream maintainers.
+<!-- END MICROSOFT SECURITY.MD BLOCK -->

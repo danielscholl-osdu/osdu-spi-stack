@@ -5,6 +5,8 @@
 # Branch protection rules → "Require review from Code Owners").
 #
 # Maintainers:
-#   @danielscholl   Daniel Scholl (Microsoft)
+#   @danielscholl                  Daniel Scholl (Microsoft)
+#   @Azure/azure-global-energy     Azure Global Energy team
 
-* @danielscholl
+# Default owner for everything
+* @danielscholl @Azure/azure-global-energy
