@@ -70,12 +70,45 @@ print_banner() {
 
 START=$SECONDS
 LAST_STATUS=0
+LAST_FED_REFRESH=0
+SEEN_KUSTOMIZATIONS=0
 declare -A LAYER_DONE
+
+# When run inside a GitHub Actions job with id-token:write permission, the
+# OIDC JWT minted by azure/login@v3 lives only 5 minutes. az caches AAD
+# access tokens for 1h, but if kubelogin/az ever needs a refresh past the
+# 5-min JWT window, AADSTS700024 kills kubectl mid-wait. Refresh the
+# assertion file every 60s so the next az exchange (whenever it lands)
+# has a valid JWT to swap in.
+refresh_federated_assertion() {
+    if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] \
+       || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] \
+       || [ -z "${AZURE_FEDERATED_TOKEN_FILE:-}" ]; then
+        return 0
+    fi
+    local url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange"
+    local tmp="${AZURE_FEDERATED_TOKEN_FILE}.new"
+    if curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$url" 2>/dev/null \
+        | jq -r '.value // empty' > "$tmp" 2>/dev/null; then
+        if [ -s "$tmp" ]; then
+            mv -f "$tmp" "$AZURE_FEDERATED_TOKEN_FILE"
+        else
+            rm -f "$tmp"
+        fi
+    else
+        rm -f "$tmp" 2>/dev/null || true
+    fi
+}
 
 print_banner "wait_for_flux_ready · timeout $(fmt_mmss "$TIMEOUT") · heartbeat ${HEARTBEAT}s · spi status every ${STATUS_INTERVAL}s"
 
 while :; do
     elapsed=$(( SECONDS - START ))
+
+    if [ $(( elapsed - LAST_FED_REFRESH )) -ge 60 ]; then
+        refresh_federated_assertion
+        LAST_FED_REFRESH=$elapsed
+    fi
 
     if [ "$elapsed" -ge "$TIMEOUT" ]; then
         echo
@@ -85,22 +118,40 @@ while :; do
         exit 1
     fi
 
-    if ! ksts_json=$(kubectl get kustomizations -A -o json 2>/dev/null); then
+    kubectl_err=$(mktemp)
+    if ! ksts_json=$(kubectl get kustomizations -A -o json 2>"$kubectl_err"); then
         ksts_json='{"items":[]}'
     fi
+    if [ -s "$kubectl_err" ] && [ "$SEEN_KUSTOMIZATIONS" -eq 1 ]; then
+        # Only surface kubectl errors once we have a baseline; pre-Flux
+        # bootstrap commonly returns "the server doesn't have a resource
+        # type" while CRDs are still installing.
+        head -3 "$kubectl_err" >&2
+    fi
+    rm -f "$kubectl_err"
 
     total=$(jq -r '.items | length' <<<"$ksts_json")
 
     if [ "$total" = "0" ]; then
-        if [ "$elapsed" -ge "$GRACE" ]; then
+        # The grace window only applies before we have *ever* seen a
+        # Kustomization. Once we have, a transient empty response from
+        # kubectl (AAD token refresh, brief API throttling, etc.) must
+        # not be confused with "Flux extension never installed CRDs."
+        if [ "$SEEN_KUSTOMIZATIONS" -eq 0 ] && [ "$elapsed" -ge "$GRACE" ]; then
             echo
             echo "ERROR: no Flux Kustomizations visible after ${GRACE}s grace -- AKS Flux extension never installed CRDs" >&2
             dump_status >&2
             exit 1
         fi
-        printf '[%s / %s] waiting for Flux extension to surface Kustomizations...\n' \
-            "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        if [ "$SEEN_KUSTOMIZATIONS" -eq 0 ]; then
+            printf '[%s / %s] waiting for Flux extension to surface Kustomizations...\n' \
+                "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        else
+            printf '[%s / %s] transient empty kubectl response; retrying...\n' \
+                "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        fi
     else
+        SEEN_KUSTOMIZATIONS=1
         per_layer=$(jq -c '
             .items
             | group_by(.metadata.labels["spi-stack.layer"] // "-")

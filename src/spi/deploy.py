@@ -206,25 +206,47 @@ def _write_keyvault_bootstrap_secrets(
             ]
         )
 
+    # The deployer's Key Vault Secrets Officer assignment is created by
+    # rbac.bicep moments earlier; ARM data-plane propagation can lag a few
+    # minutes. Retry the first write on ForbiddenByRbac so we don't fail
+    # the whole deploy on a benign timing window.
+    deadline = time.time() + 300
+    first = True
     for name, value in secrets_to_write:
-        run_command(
-            [
-                "az",
-                "keyvault",
-                "secret",
-                "set",
-                "--vault-name",
-                keyvault_name,
-                "--name",
-                name,
-                "--value",
-                value,
-                "--output",
-                "none",
-            ],
-            description=f"Set KV secret: {name}",
-            display=False,
-        )
+        while True:
+            result = subprocess.run(
+                [
+                    "az",
+                    "keyvault",
+                    "secret",
+                    "set",
+                    "--vault-name",
+                    keyvault_name,
+                    "--name",
+                    name,
+                    "--value",
+                    value,
+                    "--output",
+                    "none",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                break
+            combined = (result.stderr or "") + (result.stdout or "")
+            if "ForbiddenByRbac" in combined and first and time.time() < deadline:
+                console.print(
+                    "  [info]Key Vault role assignment not yet propagated; retrying in 30s...[/info]"
+                )
+                time.sleep(30)
+                continue
+            if result.stderr.strip():
+                console.print(
+                    f"[error]az keyvault secret set failed for {name}: {result.stderr.strip()}[/error]"
+                )
+            raise typer.Exit(code=1)
+        first = False
         console.print(f"  [success]{name}[/success]")
 
     display_result(f"{len(secrets_to_write)} Key Vault secrets written")
