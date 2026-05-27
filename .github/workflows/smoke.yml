@@ -43,7 +43,10 @@ jobs:
   provision:
     environment: azure-smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Main infra Bicep (~30 min in centralus) + Flux extension Bicep (~5-10 min)
+    # + tool install + Azure login overhead. Run 26519683457 hit the previous
+    # 30-min ceiling mid-Flux-extension deploy.
+    timeout-minutes: 45
     outputs:
       rg: ${{ steps.env.outputs.rg }}
       suffix: ${{ steps.env.outputs.suffix }}
