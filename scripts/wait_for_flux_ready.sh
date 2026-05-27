@@ -70,6 +70,7 @@ print_banner() {
 
 START=$SECONDS
 LAST_STATUS=0
+SEEN_KUSTOMIZATIONS=0
 declare -A LAYER_DONE
 
 print_banner "wait_for_flux_ready · timeout $(fmt_mmss "$TIMEOUT") · heartbeat ${HEARTBEAT}s · spi status every ${STATUS_INTERVAL}s"
@@ -92,15 +93,25 @@ while :; do
     total=$(jq -r '.items | length' <<<"$ksts_json")
 
     if [ "$total" = "0" ]; then
-        if [ "$elapsed" -ge "$GRACE" ]; then
+        # The grace window only applies before we have *ever* seen a
+        # Kustomization. Once we have, a transient empty response from
+        # kubectl (AAD token refresh, brief API throttling, etc.) must
+        # not be confused with "Flux extension never installed CRDs."
+        if [ "$SEEN_KUSTOMIZATIONS" -eq 0 ] && [ "$elapsed" -ge "$GRACE" ]; then
             echo
             echo "ERROR: no Flux Kustomizations visible after ${GRACE}s grace -- AKS Flux extension never installed CRDs" >&2
             dump_status >&2
             exit 1
         fi
-        printf '[%s / %s] waiting for Flux extension to surface Kustomizations...\n' \
-            "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        if [ "$SEEN_KUSTOMIZATIONS" -eq 0 ]; then
+            printf '[%s / %s] waiting for Flux extension to surface Kustomizations...\n' \
+                "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        else
+            printf '[%s / %s] transient empty kubectl response; retrying...\n' \
+                "$(fmt_mmss "$elapsed")" "$(fmt_mmss "$TIMEOUT")"
+        fi
     else
+        SEEN_KUSTOMIZATIONS=1
         per_layer=$(jq -c '
             .items
             | group_by(.metadata.labels["spi-stack.layer"] // "-")
