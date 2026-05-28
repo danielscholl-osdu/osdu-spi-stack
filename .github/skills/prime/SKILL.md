@@ -1,6 +1,6 @@
 ---
 name: prime
-description: Build a lightweight mental model of the osdu-spi-stack repo: structure, conventions, design decisions. Read this at the start of a session, after a long pause, or when re-orienting.
+description: "Build a lightweight mental model of the osdu-spi-stack repo: structure, conventions, design decisions. Read this at the start of a session, after a long pause, or when re-orienting."
 ---
 
 # Prime Codebase Understanding
