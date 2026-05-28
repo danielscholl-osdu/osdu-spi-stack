@@ -151,7 +151,7 @@ def read_rg_suffix_tag(resource_group: str) -> "str | None":
             "--name",
             resource_group,
             "--query",
-            f"tags.\"{RG_SUFFIX_TAG}\"",
+            f'tags."{RG_SUFFIX_TAG}"',
             "--output",
             "tsv",
         ],
