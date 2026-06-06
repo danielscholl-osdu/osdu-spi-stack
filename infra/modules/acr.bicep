@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Azure Container Registry, Basic SKU.
 
 @description('Container Registry name (globally unique, 5-50 alphanumeric).')

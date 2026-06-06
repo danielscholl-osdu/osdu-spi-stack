@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Multi-partition example parameters for infra/main.bicep -- "dev1" + 2 partitions.
 //
 // Matches the values produced by `uv run spi up --env dev1 --partition opendes

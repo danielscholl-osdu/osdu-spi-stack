@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Private network for AKS Automatic: VNet + NAT gateway + private subnet.
 //
 // Exists specifically to satisfy the "Subnets should be private" Azure

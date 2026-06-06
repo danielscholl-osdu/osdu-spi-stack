@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // DNS Zone Contributor role assignment for ExternalDNS. Deploys into
 // the DNS zone's resource group so ``existing`` resolves the zone and
 // the role assignment's scope can bind to it. Assumes the zone lives

@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // User-assigned managed identity with federated credentials bound to
 // the fixed set of Kubernetes namespaces that run OSDU workloads.
 //

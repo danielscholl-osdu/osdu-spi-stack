@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // GitOps activation: AKS-native Flux extension plus the cluster-scoped
 // GitRepository + Kustomization that Flux will reconcile against.
 //

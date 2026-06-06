@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // RBAC role assignments for the OSDU workload identity. Scoped per
 // resource so principals get only what they need. Uses deterministic
 // guid() names so a re-deploy updates the assignment rather than

@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Per-partition data plane: CosmosDB SQL account with osdu-db (and
 // optionally osdu-system-db on the primary partition), Service Bus
 // namespace with topics and subscriptions, storage account with blob

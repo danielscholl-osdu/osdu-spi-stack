@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Key Vault with RBAC authorization. Soft-delete recovery is handled
 // by the CLI pre-check before this template runs; no recovery logic here.
 

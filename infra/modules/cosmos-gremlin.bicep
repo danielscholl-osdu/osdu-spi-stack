@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // CosmosDB Gremlin account for the OSDU Entitlements graph.
 // Single-region, Session consistency, autoscale up to 4000 RU/s.
 //

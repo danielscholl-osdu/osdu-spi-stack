@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Default parameters for infra/main.bicep -- BASE environment (envName = '').
 //
 // The CLI (src/spi/azure_infra.py) synthesizes an ARM parameters JSON from

@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // User-assigned managed identity for the in-cluster ExternalDNS
 // controller. Federated to the ``external-dns`` service account in the
 // ``foundation`` namespace (created by the ExternalDNS Helm chart).

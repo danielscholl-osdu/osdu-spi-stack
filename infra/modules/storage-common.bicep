@@ -1,3 +1,6 @@
+// Copyright 2026, Microsoft
+// Licensed under the Apache License, Version 2.0.
+//
 // Shared storage account (common across partitions) for OSDU platform
 // artifacts: Airflow logs/dags, shared reference data, partition-info table.
 // Container list mirrors COMMON_STORAGE_CONTAINERS from azure_infra.py.
