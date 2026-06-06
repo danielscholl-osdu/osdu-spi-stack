@@ -15,11 +15,11 @@ credentials, one per OIDC subject the workflows run as.
 ### Already configured
 
 App Registration `osdu-spi-stack-github` exists in the
-`MCI-ENERGY-OSDU-DEVELOPER` subscription with:
+`<SUBSCRIPTION_NAME>` subscription with:
 
 | Resource | Value |
 |---|---|
-| App / Client ID | `d2ef60ef-a8e7-4755-8a36-33b98efe6851` |
+| App / Client ID | `<APP_CLIENT_ID>` |
 | Federated subject (PR builds) | `repo:danielscholl-osdu/osdu-spi-stack:pull_request` |
 | Federated subject (main builds) | `repo:danielscholl-osdu/osdu-spi-stack:ref:refs/heads/main` |
 | Federated subject (smoke env) | `repo:danielscholl-osdu/osdu-spi-stack:environment:azure-smoke` |
